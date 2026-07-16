@@ -1,0 +1,178 @@
+// Lablink OAT — operational data model.
+//
+// BOUNDARY: this schema holds the OPERATIONAL picture only. SAP FI-AA remains the
+// authoritative financial record (acquisition cost, depreciation, book value, useful
+// life). Those fields are deliberately absent here — the two systems are linked by
+// `Asset.sapAssetNo`, never merged. See docs/decisions/0004-sap-boundary-typed-contract.md
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum AssetClass {
+  LAB_INSTRUMENT
+  IT
+  PRINTER
+  SCANNER
+  REUSABLE_COMPONENT
+  OTHER
+}
+
+enum AssetStatus {
+  IN_USE
+  IDLE
+  UNDER_REPAIR
+  RETIRED
+}
+
+/// A laboratory site. 32 in production; Phase 0 seeds 3 (assumption A3).
+model Site {
+  id        String   @id @default(cuid())
+  code      String   @unique
+  name      String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  assets Asset[]
+
+  @@map("site")
+}
+
+/// The operational record of a physical asset.
+///
+/// `status`, `idleSince` and `lastSeenAt` are a PROJECTION derived from SignalEvent by the
+/// idle engine — connectors never write them directly. See ADR-0006.
+model Asset {
+  id String @id @default(cuid())
+
+  /// Shared key to SAP FI-AA. Null until the master sync matches this asset.
+  /// Assets may exist here before SAP knows them (e.g. tagged on arrival).
+  sapAssetNo String? @unique
+
+  /// Barcode / QR value. The fallback floor: an asset is trackable by scan alone.
+  tag  String     @unique
+  name String
+  class AssetClass
+  status AssetStatus @default(IN_USE)
+
+  siteId      String
+  site        Site    @relation(fields: [siteId], references: [id], onDelete: Restrict)
+  /// Free-text position within the site (bench, room, rack). Refined in Phase 1.
+  location    String?
+  /// Who currently holds the asset (RFP 2.6.4 "user"). Resolves to a User in Phase 1.
+  custodianId String?
+
+  /// Most recent observation of any kind. Null = never observed by any connector.
+  lastSeenAt DateTime?
+  /// Most recent moment the asset is known to have been actively USED (as opposed to
+  /// merely reachable). The idle engine measures quiet time from here, so it must persist
+  /// independently of idleSince — otherwise a periodic sweep over an asset with no new
+  /// signals has no baseline and could never age it into IDLE.
+  lastActiveAt DateTime?
+  /// Start of the current idle run; null when not idle. Set by the idle engine.
+  /// Equals lastActiveAt while idle; kept as its own column because "what is idle, and
+  /// since when" is a query the dashboard runs constantly.
+  idleSince  DateTime?
+
+  /// Class-specific detail: OEM, serial, warranty, calibration/licence (RFP 2.6.7).
+  /// Json because the shape differs per class; promoted to columns where queried.
+  attributes Json @default("{}")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  signals   SignalEvent[]
+  snapshots UtilisationSnapshot[]
+  locations LocationHistory[]
+
+  @@index([siteId, status])
+  @@index([status, idleSince])
+  @@map("asset")
+}
+
+/// An immutable observation from a connector. Append-only: never updated, never deleted
+/// by application code. `observedAt` is when the world did the thing; `ingestedAt` is when
+/// we heard about it — the gap is what late-arriving telemetry looks like. See ADR-0006.
+model SignalEvent {
+  id      String @id @default(cuid())
+  assetId String
+  asset   Asset  @relation(fields: [assetId], references: [id], onDelete: Cascade)
+
+  /// Connector id: "scan" | "soti" | "osquery" | "ocs" | "snmp" | "lis".
+  /// A string, not an enum: connectors are pluggable and must not require a migration.
+  source String
+  /// "heartbeat" | "idle" | "utilisation" | "location" | "status"
+  type   String
+  value  Json
+
+  observedAt DateTime
+  ingestedAt DateTime @default(now())
+
+  /// Connector-supplied idempotency key. Redelivery of the same observation must not
+  /// double-count; unique per source.
+  dedupeKey String?
+
+  @@unique([source, dedupeKey])
+  @@index([assetId, observedAt])
+  @@index([ingestedAt])
+  @@map("signal_event")
+}
+
+/// A rolled-up utilisation figure for a period. A CACHE of a derivation, not a source of
+/// truth — always rebuildable from SignalEvent. See ADR-0006.
+model UtilisationSnapshot {
+  id      String @id @default(cuid())
+  assetId String
+  asset   Asset  @relation(fields: [assetId], references: [id], onDelete: Cascade)
+
+  periodStart DateTime
+  periodEnd   DateTime
+  idleMinutes Int
+  busyMinutes Int
+  /// Busy as a percentage of observed time, 0–100.
+  utilisationPct Float
+
+  createdAt DateTime @default(now())
+
+  @@unique([assetId, periodStart, periodEnd])
+  @@index([periodStart])
+  @@map("utilisation_snapshot")
+}
+
+/// Where an asset has been. Append-only.
+model LocationHistory {
+  id      String @id @default(cuid())
+  assetId String
+  asset   Asset  @relation(fields: [assetId], references: [id], onDelete: Cascade)
+
+  from    String?
+  to      String
+  movedAt DateTime
+  /// Connector id or "manual".
+  source  String
+
+  @@index([assetId, movedAt])
+  @@map("location_history")
+}
+
+/// Audit trail over every mutation (RFP 1.41). Append-only.
+model AuditLog {
+  id     String @id @default(cuid())
+  /// User id, or a system actor such as "system:sap-sync".
+  actor  String
+  action String
+  entity String
+  entityId String
+  before Json?
+  after  Json?
+  at     DateTime @default(now())
+
+  @@index([entity, entityId, at])
+  @@index([at])
+  @@map("audit_log")
+}
