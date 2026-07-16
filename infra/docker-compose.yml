@@ -28,9 +28,18 @@ services:
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER:-oat}:${POSTGRES_PASSWORD:-oat_dev_password}@postgres:5432/${POSTGRES_DB:-oat}
       NODE_ENV: production
-      # Connectors are off by default; scan is the fallback floor and stays on.
+      # Bearer token for mutating endpoints. The default is a known dev value, NOT a secret:
+      # this compose file is for local demo and evaluation. A real deployment must supply
+      # OAT_API_TOKEN from the environment or a vault, never from this file.
+      OAT_API_TOKEN: ${OAT_API_TOKEN:-oat_local_demo_token}
+      # Seed demo data on first start so `docker compose up` yields a working demo.
+      # Idempotent (the seed upserts). Set to 0 for any real deployment — a production
+      # container must never invent asset data on boot.
+      OAT_SEED_ON_START: ${OAT_SEED_ON_START:-1}
+      # Scan is the fallback floor and stays on. SOTI is on here to demo the idle engine;
+      # it is a mock until a tenant exists (assumption A2).
       OAT_CONNECTOR_SCAN: '1'
-      OAT_CONNECTOR_SOTI: '0'
+      OAT_CONNECTOR_SOTI: '1'
       # Phase 0 demo: use the mock SAP client. Real endpoint is a config swap (assumption A2).
       OAT_SAP_CLIENT: mock
     ports:

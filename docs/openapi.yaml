@@ -1,0 +1,322 @@
+openapi: 3.1.0
+info:
+  title: Lablink Operational Asset Tracker (OAT) API
+  version: 0.1.0
+  description: |
+    The operational layer for Lablink's laboratory assets: location, custodian, status,
+    idle time and utilisation (RFP 2.6.4).
+
+    **The SAP boundary.** SAP S/4HANA FI-AA is the authoritative FINANCIAL record of every
+    asset. This API is the OPERATIONAL record. The two are linked by a shared asset ID
+    (`sapAssetNo`) and are never merged.
+
+      * `POST /sap/sync` pulls the SAP asset master INTO the OAT (one-way).
+      * Only accounting-relevant events (disposal, impairment, cost-centre move) may ever be
+        written back to SAP, behind an approval step.
+      * Telemetry — heartbeat, idle, utilisation, location — is NEVER sent to SAP. This is
+        enforced by the type system, not by convention. See
+        `docs/decisions/0004-sap-boundary-typed-contract.md`.
+  license:
+    name: Apache-2.0
+    url: https://www.apache.org/licenses/LICENSE-2.0
+
+servers:
+  - url: http://localhost:3000/api
+    description: Local development
+
+security:
+  - bearerAuth: []
+
+tags:
+  - name: Assets
+    description: The operational register.
+  - name: Signals
+    description: Observations from connectors. Append-only.
+  - name: SAP
+    description: One-way asset master sync.
+  - name: Admin
+    description: Scheduled maintenance operations.
+  - name: System
+
+paths:
+  /health:
+    get:
+      tags: [System]
+      summary: Liveness and database reachability
+      security: []
+      responses:
+        '200':
+          description: Healthy.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: { type: string, example: ok }
+                  database: { type: string, example: up }
+        '503':
+          description: The database is unreachable.
+
+  /assets:
+    get:
+      tags: [Assets]
+      summary: List the operational register
+      security: []
+      parameters:
+        - name: q
+          in: query
+          description: Match against tag, name, or SAP asset number.
+          schema: { type: string }
+        - name: status
+          in: query
+          schema: { $ref: '#/components/schemas/AssetStatus' }
+        - name: class
+          in: query
+          schema: { $ref: '#/components/schemas/AssetClass' }
+        - name: siteId
+          in: query
+          schema: { type: string }
+      responses:
+        '200':
+          description: Matching assets.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  count: { type: integer }
+                  assets:
+                    type: array
+                    items: { $ref: '#/components/schemas/Asset' }
+
+  /signals/scan:
+    post:
+      tags: [Signals]
+      summary: Submit a barcode/QR scan
+      description: |
+        The fallback floor. With every automated connector disabled, this endpoint plus
+        manual entry keeps the register fully usable — which is the graceful-degradation
+        requirement.
+
+        A scan is an assertion by a human standing in front of the asset, so it is the most
+        authoritative signal available and overrides conflicting telemetry.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ScanPayload' }
+      responses:
+        '200':
+          description: Scan accepted and the asset re-projected.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/IngestResult' }
+        '400': { description: Malformed scan. }
+        '401': { $ref: '#/components/responses/Unauthorised' }
+        '404': { description: The tag is not in the register. }
+        '503': { description: The scan connector is disabled. }
+
+  /connectors/soti/poll:
+    post:
+      tags: [Signals]
+      summary: Poll the SOTI MDM and ingest device reports
+      description: |
+        Feature-flagged by `OAT_CONNECTOR_SOTI`; returns 503 when disabled, which is a
+        supported configuration rather than an error.
+
+        Currently backed by a mock (assumption A2). The mock accepts `reports` in the body
+        so demos and tests are deterministic; the real adapter fetches from the MDM and
+        ignores the body.
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                reports:
+                  type: array
+                  items: { $ref: '#/components/schemas/SotiDeviceReport' }
+      responses:
+        '200':
+          description: Reports ingested.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/RunResult' }
+        '401': { $ref: '#/components/responses/Unauthorised' }
+        '503': { description: The SOTI connector is disabled. }
+
+  /sap/sync:
+    post:
+      tags: [SAP]
+      summary: Pull the SAP asset master into the OAT
+      description: |
+        One-way and idempotent. Matches on `sapAssetNo`, falling back to serial number for
+        assets tagged before finance capitalised them; SAP records with no match are created.
+
+        This endpoint holds a read-only port and **cannot** write to SAP.
+      responses:
+        '200':
+          description: Sync complete.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SyncResult' }
+        '401': { $ref: '#/components/responses/Unauthorised' }
+
+  /admin/sweep:
+    post:
+      tags: [Admin]
+      summary: Re-project live assets against the clock
+      description: |
+        Idleness accrues because nothing is reported, so it cannot be discovered by waiting
+        for a signal. This sweep turns silence into an IDLE status. Scheduled via pg-boss
+        from Phase 1.
+      responses:
+        '200':
+          description: Sweep complete.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  swept: { type: integer }
+        '401': { $ref: '#/components/responses/Unauthorised' }
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      description: |
+        Interim shared-secret token (`OAT_API_TOKEN`). Fails closed: if the token is not
+        configured, mutating endpoints return 503 rather than running unauthenticated.
+
+        Replaced by Auth.js session + RBAC in Phase 1, with roles per RFP Appendix F.
+
+  responses:
+    Unauthorised:
+      description: Missing or invalid bearer token.
+
+  schemas:
+    AssetStatus:
+      type: string
+      enum: [IN_USE, IDLE, UNDER_REPAIR, RETIRED]
+      description: |
+        `UNDER_REPAIR` and `RETIRED` are administrative: asserted by a human, and never
+        overwritten by telemetry.
+
+    AssetClass:
+      type: string
+      enum: [LAB_INSTRUMENT, IT, PRINTER, SCANNER, REUSABLE_COMPONENT, OTHER]
+      description: Determines the idle threshold applied to the asset.
+
+    Asset:
+      type: object
+      properties:
+        id: { type: string }
+        tag:
+          type: string
+          description: Barcode/QR value. Unique.
+        sapAssetNo:
+          type: [string, 'null']
+          description: |
+            Shared key to SAP FI-AA. Null means the master sync has not matched this asset
+            yet — commonly because it is tagged and in use but not yet capitalised.
+        name: { type: string }
+        class: { $ref: '#/components/schemas/AssetClass' }
+        status: { $ref: '#/components/schemas/AssetStatus' }
+        site:
+          type: object
+          properties:
+            id: { type: string }
+            code: { type: string }
+            name: { type: string }
+        location: { type: [string, 'null'] }
+        lastSeenAt:
+          type: [string, 'null']
+          format: date-time
+          description: Most recent observation of any kind, including mere reachability.
+        idleSince:
+          type: [string, 'null']
+          format: date-time
+          description: |
+            When the asset went quiet — not when we noticed. Null unless status is IDLE.
+
+    ScanPayload:
+      type: object
+      required: [tag]
+      properties:
+        tag: { type: string }
+        observedAt:
+          type: string
+          format: date-time
+          description: Defaults to now. Supply it when submitting scans buffered offline.
+        location: { type: string }
+        status: { $ref: '#/components/schemas/AssetStatus' }
+        custodianId: { type: string }
+        scannedBy: { type: string }
+
+    SotiDeviceReport:
+      type: object
+      required: [deviceId, assetRef, idleMinutes, reportedAt]
+      properties:
+        deviceId: { type: string }
+        assetRef:
+          type: string
+          description: Asset tag or SAP asset number, per the MDM's custom field.
+        idleMinutes:
+          type: number
+          minimum: 0
+          description: |
+            Minutes idle at the time of the report. Load-bearing: it dates the idle run from
+            when the device went quiet, so an MDM flushing a backlog after an outage is not
+            misread as fresh idleness.
+        batteryPct: { type: number }
+        location: { type: string }
+        reportedAt: { type: string, format: date-time }
+
+    IngestResult:
+      type: object
+      properties:
+        accepted:
+          type: integer
+          description: Signals written.
+        duplicates:
+          type: integer
+          description: Redeliveries suppressed on (source, dedupeKey).
+        assetsUpdated:
+          type: array
+          items: { type: string }
+
+    RunResult:
+      allOf:
+        - $ref: '#/components/schemas/IngestResult'
+        - type: object
+          properties:
+            connector: { type: string }
+            unmatched:
+              type: array
+              items: { type: string }
+              description: |
+                External references the connector reported that match no asset. Reported
+                rather than auto-created: a misconfigured connector must not be able to
+                populate the register.
+
+    SyncResult:
+      type: object
+      properties:
+        fetched: { type: integer }
+        created:
+          type: integer
+          description: Assets SAP knows that the OAT had never tagged.
+        linked:
+          type: integer
+          description: Existing OAT assets newly matched to an SAP record.
+        updated: { type: integer }
+        skipped:
+          type: array
+          description: SAP records that could not be placed at a site.
+          items:
+            type: object
+            properties:
+              assetNo: { type: string }
+              reason: { type: string }
