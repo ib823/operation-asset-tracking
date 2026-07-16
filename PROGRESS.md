@@ -130,7 +130,7 @@ Run 2026-07-16, Node 22, Postgres 16, on the Codespace.
 | Criterion                     | Evidence                                                                                                                                                                                        |
 | ----------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `docker-compose up` works     | Verified from empty volumes: Postgres healthy → migrations applied → seeded → `/api/health` 200 in ~7s.                                                                                         |
-| CI green                      | Every CI step run locally and passing. **Not yet observed on GitHub Actions** — see caveat below.                                                                                               |
+| CI green                      | **Verified on GitHub Actions** — run 29541667454, PR #1, first run, all four jobs green: static 29s · unit 25s · e2e+build 1m28s · docker 3m1s.                                                 |
 | Slice demonstrated end-to-end | 10 Playwright tests: seed → SAP sync links `sapAssetNo` → SOTI idle signal → engine flips IN_USE→IDLE with correct `idleSince` → dashboard tile. Also driven by hand against the compose stack. |
 | ADRs + PROGRESS.md written    | ADRs 0001–0007; this file.                                                                                                                                                                      |
 
@@ -151,8 +151,8 @@ Run 2026-07-16, Node 22, Postgres 16, on the Codespace.
 
 ### Known caveats
 
-1. **CI has never actually run on GitHub Actions.** Every step passes locally, but the
-   workflow file itself is unexercised. First push may need a fix.
+1. ~~CI has never actually run on GitHub Actions.~~ **Cleared 2026-07-16**: run 29541667454
+   on PR #1 passed all four jobs on the first attempt. The workflow is no longer unexercised.
 2. **`app/src/lib/api-auth.ts` is a shared bearer token, not authentication.** It fails
    closed (503 when unset, 401 on mismatch) and is a deliberate seam, but it is the one
    knowingly weak thing in the build. Phase 1 replaces it.
