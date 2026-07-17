@@ -1,0 +1,411 @@
+// Lablink OAT — operational data model.
+//
+// BOUNDARY: this schema holds the OPERATIONAL picture only. SAP FI-AA remains the
+// authoritative financial record (acquisition cost, depreciation, book value, useful
+// life). Those fields are deliberately absent here — the two systems are linked by
+// `Asset.sapAssetNo`, never merged. See docs/decisions/0004-sap-boundary-typed-contract.md
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum AssetClass {
+  LAB_INSTRUMENT
+  IT
+  PRINTER
+  SCANNER
+  REUSABLE_COMPONENT
+  OTHER
+}
+
+enum AssetStatus {
+  IN_USE
+  IDLE
+  UNDER_REPAIR
+  RETIRED
+}
+
+/// A laboratory site. 32 in production; we seed 3 (assumption A3).
+model Site {
+  id   String @id @default(cuid())
+  code String @unique
+  name String
+
+  /// How long a human's IN_USE/IDLE scan outranks telemetry here (ADR-0013).
+  ///
+  /// Null means "use the global default" — NOT a copy of it. A site that has never been
+  /// configured must follow the default as it changes, rather than being frozen at whatever
+  /// the default happened to be the day the site was created.
+  scanTtlMinutes Int?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  assets Asset[]
+
+  @@map("site")
+}
+
+/// The operational record of a physical asset.
+///
+/// `status`, `idleSince` and `lastSeenAt` are a PROJECTION derived from SignalEvent by the
+/// idle engine — connectors never write them directly. See ADR-0006.
+model Asset {
+  id String @id @default(cuid())
+
+  /// Shared key to SAP FI-AA. Null until the master sync matches this asset.
+  /// Assets may exist here before SAP knows them (e.g. tagged on arrival).
+  sapAssetNo String? @unique
+
+  /// Barcode / QR value. The fallback floor: an asset is trackable by scan alone.
+  tag   String      @unique
+  name  String
+  class AssetClass
+  /// Free text, not an enum: "Analyser", "Microscope", "Centrifuge" (ADR-0014).
+  ///
+  /// Lablink names their own equipment. Subdividing AssetClass instead would mean a
+  /// migration and an SAP mapping change every time they buy a kind of machine we have not
+  /// seen — and AssetClass is a vocabulary shared with SAP, not a place for idle nuance.
+  subType String?
+  status  AssetStatus @default(IN_USE)
+
+  siteId      String
+  site        Site    @relation(fields: [siteId], references: [id], onDelete: Restrict)
+  /// Free-text position within the site (bench, room, rack). Refined in Phase 1.
+  location    String?
+  /// Who currently holds the asset (RFP 2.6.4 "user"). Resolves to a User in Phase 1.
+  custodianId String?
+
+  /// An IN_USE/IDLE assertion made by a human at the asset, with the moment it was made.
+  /// Beats telemetry until `scanAssertedAt` ages past the TTL, then telemetry resumes
+  /// automatically (ADR-0010). Null when no scan has asserted a contested status.
+  /// Administrative statuses are NOT held here — they are sticky and live in `status`.
+  scanAssertedStatus AssetStatus?
+  scanAssertedAt     DateTime?
+
+  /// Most recent observation of any kind. Null = never observed by any connector.
+  lastSeenAt DateTime?
+  /// Most recent moment the asset is known to have been actively USED (as opposed to
+  /// merely reachable). The idle engine measures quiet time from here, so it must persist
+  /// independently of idleSince — otherwise a periodic sweep over an asset with no new
+  /// signals has no baseline and could never age it into IDLE.
+  lastActiveAt DateTime?
+  /// Start of the current idle run; null when not idle. Set by the idle engine.
+  /// Equals lastActiveAt while idle; kept as its own column because "what is idle, and
+  /// since when" is a query the dashboard runs constantly.
+  idleSince  DateTime?
+
+  /// Class-specific detail: OEM, serial, warranty, calibration/licence (RFP 2.6.7).
+  /// Json because the shape differs per class; promoted to columns where queried.
+  attributes Json @default("{}")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  signals   SignalEvent[]
+  snapshots UtilisationSnapshot[]
+  locations LocationHistory[]
+  conflicts ConflictAlert[]
+  alerts    IdleAlert[]
+
+  @@index([siteId, status])
+  @@index([status, idleSince])
+  @@index([class, subType])
+  @@map("asset")
+}
+
+/// An idle-policy override. Resolution: ASSET -> SUB_TYPE -> CLASS -> built-in default
+/// (ADR-0014). Only the most specific matching row applies.
+///
+/// `activitySources` is deliberately absent: it is not a tuning knob but the rule that stops
+/// a heartbeat being mistaken for use (ADR-0008). An override re-admitting SNMP as activity
+/// for one analyser would silently reintroduce fabricated utilisation for exactly the asset
+/// someone cared enough to configure.
+model IdleConfig {
+  id    String    @id @default(cuid())
+  scope IdleScope
+  /// CLASS -> "IT" · SUB_TYPE -> "LAB_INSTRUMENT:Analyser" · ASSET -> the asset id.
+  key   String
+
+  /// Minutes of quiet before the asset counts as idle.
+  thresholdMinutes Int
+  /// Minutes idle before an alert is raised. Null inherits from the next level up.
+  alertAfterMinutes Int?
+
+  updatedBy String
+  updatedAt DateTime @updatedAt
+  createdAt DateTime @default(now())
+
+  @@unique([scope, key])
+  @@map("idle_config")
+}
+
+enum IdleScope {
+  CLASS
+  SUB_TYPE
+  ASSET
+}
+
+/// An asset idle for longer than its configured alert threshold.
+///
+/// One OPEN alert per asset at a time: the sweep re-evaluates constantly, so inserting per
+/// detection would produce an alert every run for the same underlying fact and train
+/// everyone to ignore them.
+model IdleAlert {
+  id      String @id @default(cuid())
+  assetId String
+  asset   Asset  @relation(fields: [assetId], references: [id], onDelete: Cascade)
+
+  /// When the asset went quiet, and how long it has been quiet at detection.
+  idleSince        DateTime
+  idleMinutes      Int
+  /// The resolved threshold that fired, recorded so the alert stays explicable after the
+  /// config changes.
+  thresholdMinutes Int
+
+  status     AlertStatus @default(OPEN)
+  detectedAt DateTime    @default(now())
+  /// Bumped each sweep while the alert stands, so age is accurate.
+  lastSeenAt DateTime    @updatedAt
+
+  acknowledgedBy String?
+  acknowledgedAt DateTime?
+  resolvedAt     DateTime?
+
+  @@index([status, detectedAt])
+  @@index([assetId, status])
+  @@map("idle_alert")
+}
+
+enum AlertStatus {
+  OPEN
+  ACKNOWLEDGED
+  /// The asset became active again, or a human moved it out of IDLE.
+  RESOLVED
+}
+
+/// An SAP asset master record the sync could not confidently match to an OAT asset.
+///
+/// Queued for a human rather than auto-created: SAP knowing about an asset is not evidence
+/// that anyone tagged it, and a sync that can invent register rows can poison the register
+/// unattended at 2am. See ADR-0009.
+model ReconciliationItem {
+  id String @id @default(cuid())
+
+  /// The SAP asset number that could not be placed.
+  sapAssetNo String @unique
+  /// The full SAP record, so a human can decide without re-querying SAP.
+  sapRecord  Json
+  reason     ReconciliationReason
+  status     ReconciliationStatus @default(OPEN)
+
+  /// Set when resolved by linking to an existing asset.
+  resolvedAssetId String?
+  resolvedBy      String?
+  resolvedAt      DateTime?
+  /// Why it was dismissed, when it was.
+  note            String?
+
+  firstSeenAt DateTime @default(now())
+  /// Bumped by each sync that still cannot place the record. Age matters more than count:
+  /// an item open for weeks is the thing worth alerting on (ADR-0009).
+  lastSeenAt  DateTime @updatedAt
+
+  @@index([status, firstSeenAt])
+  @@map("reconciliation_item")
+}
+
+enum ReconciliationReason {
+  /// No tag, serial, or existing link matched.
+  NO_MATCH
+  /// The SAP record's cost centre maps to no known site.
+  UNKNOWN_COST_CENTRE
+  /// Serial matched an asset already linked to a DIFFERENT SAP asset number.
+  CONFLICTING_LINK
+}
+
+enum ReconciliationStatus {
+  OPEN
+  RESOLVED
+  DISMISSED
+}
+
+/// A sustained disagreement between a human scan and telemetry (ADR-0010).
+///
+/// A single disagreement is just the world changing and is not recorded. Sustained conflict
+/// means the scan was wrong, the device is misconfigured, or the asset ref points at the
+/// wrong machine — all worth knowing, none visible from either source alone.
+model ConflictAlert {
+  id      String @id @default(cuid())
+  assetId String
+  asset   Asset  @relation(fields: [assetId], references: [id], onDelete: Cascade)
+
+  /// What the human asserted, and what telemetry keeps insisting.
+  scanStatus      AssetStatus
+  telemetryStatus AssetStatus
+  scanAssertedAt  DateTime
+  /// How long telemetry has been contradicting the scan.
+  sustainedMinutes Int
+
+  status      ConflictStatus @default(OPEN)
+  detectedAt  DateTime       @default(now())
+  resolvedAt  DateTime?
+
+  @@index([status, detectedAt])
+  @@index([assetId, status])
+  @@map("conflict_alert")
+}
+
+enum ConflictStatus {
+  OPEN
+  RESOLVED
+}
+
+/// An immutable observation from a connector. Append-only: never updated, never deleted
+/// by application code. `observedAt` is when the world did the thing; `ingestedAt` is when
+/// we heard about it — the gap is what late-arriving telemetry looks like. See ADR-0006.
+model SignalEvent {
+  id      String @id @default(cuid())
+  assetId String
+  asset   Asset  @relation(fields: [assetId], references: [id], onDelete: Cascade)
+
+  /// Connector id: "scan" | "soti" | "osquery" | "ocs" | "snmp" | "lis".
+  /// A string, not an enum: connectors are pluggable and must not require a migration.
+  source String
+  /// "heartbeat" | "idle" | "utilisation" | "location" | "status"
+  type   String
+  value  Json
+
+  observedAt DateTime
+  ingestedAt DateTime @default(now())
+
+  /// Connector-supplied idempotency key. Redelivery of the same observation must not
+  /// double-count; unique per source.
+  dedupeKey String?
+
+  @@unique([source, dedupeKey])
+  @@index([assetId, observedAt])
+  @@index([ingestedAt])
+  @@map("signal_event")
+}
+
+/// A rolled-up utilisation figure for a period. A CACHE of a derivation, not a source of
+/// truth — always rebuildable from SignalEvent. See ADR-0006.
+///
+/// A row exists only where the asset was actually OBSERVED (ADR-0015). No row means "we do
+/// not know", which is different from 0% and must never be shown as it.
+model UtilisationSnapshot {
+  id      String @id @default(cuid())
+  assetId String
+  asset   Asset  @relation(fields: [assetId], references: [id], onDelete: Cascade)
+
+  periodStart DateTime
+  periodEnd   DateTime
+
+  /// Minutes within the period we had connector coverage for. The denominator.
+  observedMinutes Int
+  busyMinutes     Int
+  idleMinutes     Int
+  /// Busy as a percentage of OBSERVED time (not of the period), 0–100.
+  utilisationPct  Float
+
+  createdAt DateTime @default(now())
+
+  @@unique([assetId, periodStart, periodEnd])
+  @@index([periodStart])
+  @@map("utilisation_snapshot")
+}
+
+/// Where an asset has been. Append-only.
+model LocationHistory {
+  id      String @id @default(cuid())
+  assetId String
+  asset   Asset  @relation(fields: [assetId], references: [id], onDelete: Cascade)
+
+  from    String?
+  to      String
+  movedAt DateTime
+  /// Connector id or "manual".
+  source  String
+
+  @@index([assetId, movedAt])
+  @@map("location_history")
+}
+
+/// Roles per RFP Appendix F.
+///
+/// A closed enum rather than free-text or a join table: the role set is defined by the RFP,
+/// not by runtime configuration, and permissions are compiled into `packages/auth`. Adding
+/// a role should be a reviewed code change, not an INSERT.
+enum Role {
+  /// Finance: asset register, disposal/impairment approval. Read-only on operations.
+  FINANCE
+  /// Purchasing: acquisition and vendor detail.
+  PURCHASING
+  /// Branch: their own site's assets. Scan, move, assign.
+  BRANCH
+  /// HQ Lab Manager: all sites, utilisation and idle reporting, idle policy.
+  HQ_LAB_MANAGER
+  /// IT: connectors, integrations, system configuration.
+  IT
+  /// Developer: full access, including the reconciliation queue.
+  DEVELOPER
+}
+
+/// An OAT user.
+///
+/// Local credentials in Phase 1 with a clean seam to OIDC/SAML (SAP IAS) later — hence the
+/// nullable `passwordHash` and the `externalId`, which an IdP-issued subject will populate
+/// when Lablink's IAS tenant exists. See ADR-0011.
+model User {
+  id    String @id @default(cuid())
+  email String @unique
+  name  String
+
+  /// Argon2id hash. Null for users provisioned by an external IdP, who never have one.
+  passwordHash String?
+  /// Stable subject claim from the IdP. Null until federated.
+  externalId   String? @unique
+
+  roles Role[]
+
+  /// Scopes a BRANCH user to their site. Null for HQ/Finance/IT roles, who span sites.
+  siteId String?
+
+  active Boolean @default(true)
+
+  /// Bumped to invalidate every outstanding token for this user.
+  ///
+  /// Auth.js issues stateless JWTs with the Credentials provider, which cannot be withdrawn
+  /// before they expire. Checking this (and `active`) on each request restores revocation:
+  /// bump it and the user's existing tokens stop being honoured. See ADR-0011.
+  tokenVersion Int @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([email])
+  @@map("user")
+}
+
+/// Audit trail over every mutation (RFP 1.41). Append-only.
+model AuditLog {
+  id     String @id @default(cuid())
+  /// User id, or a system actor such as "system:sap-sync".
+  actor  String
+  action String
+  entity String
+  entityId String
+  before Json?
+  after  Json?
+  at     DateTime @default(now())
+
+  @@index([entity, entityId, at])
+  @@index([at])
+  @@map("audit_log")
+}

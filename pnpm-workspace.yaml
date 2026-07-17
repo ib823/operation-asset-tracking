@@ -1,0 +1,21 @@
+packages:
+  - 'app'
+  - 'packages/*'
+
+# pnpm 10 blocks dependency build scripts unless allowlisted. Enumerated rather than
+# disabling the protection wholesale: these three need a postinstall to fetch or compile
+# their platform binaries, and nothing else in the tree should be running arbitrary code
+# at install time.
+onlyBuiltDependencies:
+  - '@prisma/client'
+  - '@prisma/engines'
+  - esbuild
+  - prisma
+
+# Next pulls `sharp` as an OPTIONAL dependency for image optimisation. Its prebuilt libvips
+# binary (@img/sharp-libvips-*) is LGPL-3.0-or-later — copyleft, which ADR-0003 forbids in
+# delivered source. The OAT has no images to optimise (it is a register of text and status
+# badges), so the dependency is dropped rather than exempted. Next is configured with
+# `images.unoptimized` to match. See docs/decisions/0007-exclude-sharp-lgpl-libvips.md.
+ignoredOptionalDependencies:
+  - sharp

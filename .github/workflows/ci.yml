@@ -1,0 +1,148 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# A new push makes an in-flight run obsolete; cancel it rather than pay for both.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  DATABASE_URL: postgresql://oat:oat_dev_password@localhost:5432/oat
+  OAT_API_TOKEN: ci_token_not_a_secret
+
+jobs:
+  # Licence and static checks are separated from the test job: they need no database and no
+  # browser, so they fail in ~1 minute rather than after a full stack comes up.
+  static:
+    name: Lint · typecheck · licences
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Generate Prisma client
+        run: pnpm --filter @oat/db exec prisma generate
+
+      - name: Lint
+        run: pnpm lint
+
+      - name: Format check
+        run: pnpm format:check
+
+      # Enforces the SAP boundary: the @ts-expect-error assertions in
+      # packages/sap/src/contract.test.ts fail the build if the outbound event union ever
+      # widens to admit telemetry (ADR-0004).
+      - name: Typecheck
+        run: pnpm typecheck
+
+      # ADR-0003: fails on any copyleft licence anywhere in the transitive tree.
+      # This is the gate that keeps the handover free of copyleft obligation.
+      - name: Licence gate
+        run: pnpm licences
+
+      - name: Generate SBOM
+        run: pnpm sbom
+
+      - name: Upload SBOM
+        uses: actions/upload-artifact@v4
+        with:
+          name: sbom
+          path: sbom.json
+
+  test:
+    name: Unit tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @oat/db exec prisma generate
+      - run: pnpm test
+
+  e2e:
+    name: E2E · build
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: oat
+          POSTGRES_PASSWORD: oat_dev_password
+          POSTGRES_DB: oat
+        ports:
+          - 5432:5432
+        # Without this the migration step races the database and fails intermittently.
+        options: >-
+          --health-cmd "pg_isready -U oat -d oat"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @oat/db exec prisma generate
+
+      - name: Apply migrations
+        run: pnpm db:deploy
+
+      - name: Build
+        run: pnpm build
+
+      - name: Install Playwright browser
+        run: pnpm exec playwright install --with-deps chromium
+
+      # Proves the Phase 0 vertical slice end to end against a production build and a real
+      # Postgres: SAP sync -> connector signal -> idle engine -> dashboard.
+      - name: E2E
+        run: pnpm e2e
+
+      - name: Upload Playwright report
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: playwright-report/
+          retention-days: 7
+
+  docker:
+    name: Docker image
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      # Phase 0 acceptance requires `docker-compose up` to work, so CI builds the image
+      # rather than trusting that it still does.
+      - name: Build image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: infra/Dockerfile
+          push: false
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

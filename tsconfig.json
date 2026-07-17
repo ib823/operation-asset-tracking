@@ -1,0 +1,23 @@
+{
+  "files": [],
+  "references": [
+    {
+      "path": "./packages/db"
+    },
+    {
+      "path": "./packages/core"
+    },
+    {
+      "path": "./packages/sap"
+    },
+    {
+      "path": "./packages/connectors"
+    },
+    {
+      "path": "./packages/auth"
+    },
+    {
+      "path": "./packages/seed"
+    }
+  ]
+}

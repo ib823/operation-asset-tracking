@@ -1,0 +1,20 @@
+node_modules
+**/node_modules
+.next
+**/.next
+dist
+**/dist
+.git
+
+# Secrets. `.env` alone matches only the repo root — a nested packages/db/.env was found
+# baked into a built image, which is exactly how a real credential reaches a client.
+# `**/.env*` matches at any depth; the negation keeps the committed example.
+**/.env
+**/.env.*
+!**/.env.example
+
+test-results
+playwright-report
+coverage
+*.tsbuildinfo
+sbom.json
