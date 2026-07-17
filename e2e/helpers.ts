@@ -97,9 +97,14 @@ export async function resetOperational(): Promise<void> {
 
   await prisma.signalEvent.deleteMany()
   await prisma.conflictAlert.deleteMany()
+  await prisma.idleAlert.deleteMany()
   await prisma.locationHistory.deleteMany()
   await prisma.utilisationSnapshot.deleteMany()
   await prisma.reconciliationItem.deleteMany()
+  // Config is operational state too: a threshold one test sets would otherwise silently
+  // change what the next test measures. Missing this made a config test read the previous
+  // test's override and report the wrong provenance.
+  await prisma.idleConfig.deleteMany()
   await prisma.auditLog.deleteMany()
 
   // Return every asset to its seeded state: unlinked from SAP, in use, no observations.

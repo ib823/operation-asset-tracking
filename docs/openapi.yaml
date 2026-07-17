@@ -34,6 +34,11 @@ tags:
     description: Observations from connectors. Append-only.
   - name: SAP
     description: One-way asset master sync.
+  - name: Utilisation
+    description: |
+      Rollups and idle policy. Utilisation is measured against OBSERVED time, and absence of
+      data is NOT zero — no coverage means no snapshot, which the UI must render as
+      "not measured" (ADR-0015).
   - name: Reconciliation
     description: SAP records awaiting a human decision (ADR-0009).
   - name: Admin
@@ -266,6 +271,173 @@ paths:
             Already resolved by someone else, or the asset is already linked to a different
             SAP asset — never silently re-pointed.
 
+  /assets/{tag}/utilisation:
+    get:
+      tags: [Utilisation]
+      summary: Daily utilisation snapshots for one asset
+      description: |
+        Requires `utilisation:read`. Site-scoped.
+
+        An EMPTY list means **not measured**, never 0%. A zero indistinguishable from
+        ignorance is what would justify disposing of a busy machine (ADR-0015).
+      parameters:
+        - name: tag
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: Snapshots, most recent first.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  asset:
+                    type: object
+                    properties:
+                      id: { type: string }
+                      tag: { type: string }
+                      class: { $ref: '#/components/schemas/AssetClass' }
+                      subType: { type: [string, 'null'] }
+                  snapshots:
+                    type: array
+                    items: { $ref: '#/components/schemas/UtilisationSnapshot' }
+        '401': { $ref: '#/components/responses/Unauthorised' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { description: Not found, or at another site. }
+
+  /idle-config:
+    get:
+      tags: [Utilisation]
+      summary: The resolved idle policy per class, with provenance
+      description: |
+        Requires `utilisation:read`. Returns the RESOLVED value and WHERE it came from
+        (ADR-0014) — a number whose origin you cannot see is a number nobody trusts.
+
+        The built-in defaults are PROVISIONAL: ABeam's judgement, not Lablink's operational
+        answer. No test can validate them.
+      responses:
+        '200':
+          description: Resolved policy.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  classes:
+                    type: array
+                    items: { $ref: '#/components/schemas/ResolvedIdlePolicy' }
+                  subTypeOverrides: { type: array, items: { $ref: '#/components/schemas/IdleConfig' } }
+                  assetOverrides: { type: array, items: { $ref: '#/components/schemas/IdleConfig' } }
+        '401': { $ref: '#/components/responses/Unauthorised' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+    put:
+      tags: [Utilisation]
+      summary: Set an idle override at any level of the chain
+      description: |
+        Requires `idle-policy:manage` (HQ Lab Manager, Developer).
+
+        Resolution is asset → sub-type → class → default. `activitySources` is deliberately
+        NOT settable: it is the rule that keeps utilisation honest, not a tuning knob
+        (ADR-0008/0014).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/IdleConfig' }
+      responses:
+        '200': { description: Saved. }
+        '400':
+          description: |
+            Invalid, or a key nothing matches — a sub-type no asset has is rejected rather
+            than saved as a row that silently never applies.
+        '401': { $ref: '#/components/responses/Unauthorised' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+    delete:
+      tags: [Utilisation]
+      summary: Clear an override, falling back down the chain
+      parameters:
+        - name: scope
+          in: query
+          required: true
+          schema: { type: string, enum: [CLASS, SUB_TYPE, ASSET] }
+        - name: key
+          in: query
+          required: true
+          schema: { type: string }
+      responses:
+        '200': { description: Cleared. }
+        '404': { description: No such override — already the default. }
+
+  /alerts:
+    get:
+      tags: [Utilisation]
+      summary: Assets idle past their alert threshold
+      description: |
+        Requires `utilisation:read`. Site-scoped. Ordered longest-idle first: that is the
+        disposal conversation, and the reason this list exists.
+      parameters:
+        - name: status
+          in: query
+          schema: { type: string, enum: [OPEN, ACKNOWLEDGED, RESOLVED], default: OPEN }
+      responses:
+        '200':
+          description: Alerts.
+        '401': { $ref: '#/components/responses/Unauthorised' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /alerts/{id}:
+    post:
+      tags: [Utilisation]
+      summary: Acknowledge an idle alert
+      description: |
+        Says "a human has seen this", so the sweep stops re-raising it. Does NOT resolve it —
+        the asset is still idle, and it resolves itself when the asset is used again. Nobody
+        declares a machine busy by clicking a button.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        '200': { description: Acknowledged. }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { description: Not found. }
+        '409': { description: Already acknowledged or resolved. }
+
+  /admin/rollup:
+    post:
+      tags: [Admin]
+      security:
+        - serviceToken: []
+      summary: Roll a local day of signals into utilisation snapshots
+      description: |
+        Idempotent — upserts on (asset, period), so re-running after a config change
+        overwrites rather than duplicating.
+
+        Only classes with a DEPLOYED activity source are rolled up, derived from the
+        connector flags: instruments begin rolling up the day the LIS is enabled, and turning
+        a connector off stops the rollups rather than silently converting them to zeroes
+        (ADR-0015).
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                day:
+                  type: string
+                  format: date-time
+                  description: The local day to roll up. Defaults to yesterday — today is not over.
+      responses:
+        '200':
+          description: Rollup summary.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/RollupSummary' }
+        '401': { $ref: '#/components/responses/Unauthorised' }
+
 components:
   securitySchemes:
     sessionAuth:
@@ -400,6 +572,79 @@ components:
                 External references the connector reported that match no asset. Reported
                 rather than auto-created: a misconfigured connector must not be able to
                 populate the register.
+
+    UtilisationSnapshot:
+      type: object
+      description: |
+        A CACHE of a derivation, never a source of truth — always rebuildable from the
+        append-only signal log (ADR-0006).
+      properties:
+        periodStart: { type: string, format: date-time }
+        periodEnd: { type: string, format: date-time }
+        observedMinutes:
+          type: integer
+          description: |
+            Minutes within the period we had connector coverage for. THE DENOMINATOR — stored
+            so the figure is auditable: 80% of a 2-hour window is a different claim from 80%
+            of a full day.
+        busyMinutes: { type: integer }
+        idleMinutes: { type: integer }
+        utilisationPct:
+          type: number
+          description: Busy as a percentage of OBSERVED time, not of the period. 0–100.
+
+    ResolvedIdlePolicy:
+      type: object
+      properties:
+        class: { $ref: '#/components/schemas/AssetClass' }
+        thresholdMinutes: { type: integer }
+        thresholdSource:
+          type: string
+          enum: [asset, sub-type, class, default]
+          description: Where the value came from. `default` means it is still PROVISIONAL.
+        alertAfterMinutes: { type: integer }
+        alertSource: { type: string, enum: [asset, sub-type, class, default] }
+        activitySources:
+          description: |
+            Which sources may evidence ACTIVITY for this class. Read-only. An empty list means
+            scan-tracked only; `lis` alone means the class reports nothing until the LIS lands
+            (ADR-0008).
+          oneOf:
+            - type: array
+              items: { type: string }
+            - type: string
+              enum: ['*']
+        defaultThresholdMinutes: { type: integer }
+
+    IdleConfig:
+      type: object
+      required: [scope, key, thresholdMinutes]
+      properties:
+        scope: { type: string, enum: [CLASS, SUB_TYPE, ASSET] }
+        key:
+          type: string
+          description: 'CLASS → "IT" · SUB_TYPE → "LAB_INSTRUMENT:Analyser" · ASSET → the asset id.'
+        thresholdMinutes: { type: integer, minimum: 1 }
+        alertAfterMinutes:
+          type: [integer, 'null']
+          description: Null inherits from the next level up — the two resolve independently.
+
+    RollupSummary:
+      type: object
+      properties:
+        periodStart: { type: string, format: date-time }
+        periodEnd: { type: string, format: date-time }
+        eligible: { type: integer }
+        written: { type: integer }
+        unobserved:
+          type: integer
+          description: |
+            Eligible assets with no coverage. NO snapshot is written for them: that means
+            "we do not know", which is not 0% and must never be shown as it.
+        skippedClasses:
+          type: array
+          items: { type: string }
+          description: Classes skipped because no connector feeding them is deployed.
 
     SyncResult:
       type: object

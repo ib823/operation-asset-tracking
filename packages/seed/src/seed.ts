@@ -16,15 +16,20 @@ import { PrismaClient, type AssetClass, type Role } from '@oat/db'
 const prisma = new PrismaClient()
 
 const SITES = [
-  { code: 'KL01', name: 'Lablink Kuala Lumpur — Central Lab' },
-  { code: 'PJ02', name: 'Lablink Petaling Jaya' },
-  { code: 'JB03', name: 'Lablink Johor Bahru' },
+  // KL01 runs two shifts, so a scan is believed for a full day rather than half of one
+  // (ADR-0013). The other sites follow the default — null means "track the default", not a
+  // frozen copy of it.
+  { code: 'KL01', name: 'Lablink Kuala Lumpur — Central Lab', scanTtlMinutes: 24 * 60 },
+  { code: 'PJ02', name: 'Lablink Petaling Jaya', scanTtlMinutes: null },
+  { code: 'JB03', name: 'Lablink Johor Bahru', scanTtlMinutes: null },
 ]
 
 interface SeedAsset {
   tag: string
   name: string
   class: AssetClass
+  /** Free text (ADR-0014) — Lablink names their own equipment. */
+  subType?: string
   siteCode: string
   location: string
   serial?: string
@@ -36,6 +41,7 @@ const ASSETS: SeedAsset[] = [
     tag: 'LAB-0001',
     name: 'Haematology Analyser XN-1000',
     class: 'LAB_INSTRUMENT',
+    subType: 'Analyser',
     siteCode: 'KL01',
     location: 'Haematology Bench 1',
     serial: 'SN-XN1000-4471',
@@ -45,6 +51,7 @@ const ASSETS: SeedAsset[] = [
     tag: 'LAB-0002',
     name: 'Chemistry Analyser AU680',
     class: 'LAB_INSTRUMENT',
+    subType: 'Analyser',
     siteCode: 'KL01',
     location: 'Chemistry Bench 2',
     serial: 'SN-AU680-1182',
@@ -54,6 +61,7 @@ const ASSETS: SeedAsset[] = [
     tag: 'LAB-0003',
     name: 'Centrifuge 5810R',
     class: 'LAB_INSTRUMENT',
+    subType: 'Centrifuge',
     siteCode: 'KL01',
     location: 'Prep Room',
     serial: 'SN-5810R-8823',
@@ -81,6 +89,7 @@ const ASSETS: SeedAsset[] = [
     tag: 'LAB-0006',
     name: 'Immunoassay Analyser Architect',
     class: 'LAB_INSTRUMENT',
+    subType: 'Analyser',
     siteCode: 'PJ02',
     location: 'Immunology Bench 1',
     serial: 'SN-ARCH-3310',
@@ -108,6 +117,7 @@ const ASSETS: SeedAsset[] = [
     tag: 'LAB-0009',
     name: 'Microscope CX23',
     class: 'LAB_INSTRUMENT',
+    subType: 'Microscope',
     siteCode: 'JB03',
     location: 'Microscopy Bench',
     serial: 'SN-CX23-2204',
@@ -132,7 +142,7 @@ async function main(): Promise<void> {
     const row = await prisma.site.upsert({
       where: { code: site.code },
       create: site,
-      update: { name: site.name },
+      update: { name: site.name, scanTtlMinutes: site.scanTtlMinutes },
     })
     siteIds.set(site.code, row.id)
   }
@@ -147,12 +157,13 @@ async function main(): Promise<void> {
         tag: asset.tag,
         name: asset.name,
         class: asset.class,
+        subType: asset.subType ?? null,
         siteId,
         location: asset.location,
         status: 'IN_USE',
         attributes: { serial: asset.serial ?? null, manufacturer: asset.manufacturer ?? null },
       },
-      update: { name: asset.name, siteId, location: asset.location },
+      update: { name: asset.name, siteId, location: asset.location, subType: asset.subType ?? null },
     })
   }
 

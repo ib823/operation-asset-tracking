@@ -1,10 +1,19 @@
 import { describe, expect, it } from 'vitest'
 import { idleMinutes, project, type AssetProjection } from './idle-engine'
-import { DEFAULT_ENGINE_POLICY, resolveEnginePolicy, type EnginePolicy } from './idle-policy'
+import { DEFAULT_IDLE_POLICY, DEFAULT_SCAN_TTL_MINUTES, type EnginePolicy } from './idle-policy'
 import type { SignalInput } from './signals'
 
 const NOW = new Date('2026-07-16T12:00:00Z')
-const policy = DEFAULT_ENGINE_POLICY
+
+/** The engine takes an already-RESOLVED policy (ADR-0014), so tests state one directly. */
+function policyFor(
+  assetClass: keyof typeof DEFAULT_IDLE_POLICY,
+  scanTtlMinutes = DEFAULT_SCAN_TTL_MINUTES,
+): EnginePolicy {
+  return { idle: DEFAULT_IDLE_POLICY[assetClass], scanTtlMinutes }
+}
+
+const policy = policyFor('IT')
 
 function minutesBefore(n: number): Date {
   return new Date(NOW.getTime() - n * 60_000)
@@ -26,7 +35,6 @@ function signal(partial: Partial<SignalInput> & Pick<SignalInput, 'type' | 'valu
 /** An IT-class asset: threshold 30 min, activity from osquery/soti. */
 function projectIt(input: { current?: AssetProjection; signals?: SignalInput[]; now?: Date; policy?: EnginePolicy }) {
   return project({
-    assetClass: 'IT',
     current: input.current ?? fresh,
     signals: input.signals ?? [],
     now: input.now ?? NOW,
@@ -63,16 +71,19 @@ describe('idle thresholds', () => {
       signal({ source: 'snmp', type: 'utilisation', value: { busy: true }, observedAt: minutesBefore(150) }),
     ]
 
-    expect(project({ assetClass: 'IT', current: fresh, signals: itSignals, now: NOW, policy }).projection.status).toBe(
+    expect(project({ current: fresh, signals: itSignals, now: NOW, policy: policyFor('IT') }).projection.status).toBe(
       'IDLE',
     )
     expect(
-      project({ assetClass: 'PRINTER', current: fresh, signals: printerSignals, now: NOW, policy }).projection.status,
+      project({ current: fresh, signals: printerSignals, now: NOW, policy: policyFor('PRINTER') }).projection.status,
     ).toBe('IN_USE')
   })
 
-  it('honours a per-class threshold override from config', () => {
-    const relaxed = resolveEnginePolicy({ idleOverrides: { IT: 90 } })
+  it('honours a resolved threshold override', () => {
+    const relaxed: EnginePolicy = {
+      idle: { ...DEFAULT_IDLE_POLICY.IT, thresholdMinutes: 90 },
+      scanTtlMinutes: DEFAULT_SCAN_TTL_MINUTES,
+    }
     const signals = [signal({ type: 'utilisation', value: { busy: true }, observedAt: minutesBefore(45) })]
 
     expect(projectIt({ signals }).projection.status).toBe('IDLE')
@@ -124,11 +135,10 @@ describe('activity sources', () => {
     // The failure this rule exists to prevent: an analyser idle overnight still answers
     // SNMP. If that counted as use, every instrument would show ~100% utilisation forever.
     const { projection } = project({
-      assetClass: 'LAB_INSTRUMENT',
       current: fresh,
       signals: [signal({ source: 'snmp', type: 'utilisation', value: { busy: true }, observedAt: minutesBefore(5) })],
       now: NOW,
-      policy,
+      policy: policyFor('LAB_INSTRUMENT'),
     })
 
     expect(projection.lastActiveAt).toBeNull()
@@ -138,11 +148,10 @@ describe('activity sources', () => {
 
   it('accepts LIS activity on a lab instrument', () => {
     const { projection } = project({
-      assetClass: 'LAB_INSTRUMENT',
       current: fresh,
       signals: [signal({ source: 'lis', type: 'utilisation', value: { busy: true }, observedAt: minutesBefore(5) })],
       now: NOW,
-      policy,
+      policy: policyFor('LAB_INSTRUMENT'),
     })
 
     expect(projection.lastActiveAt).toEqual(minutesBefore(5))
@@ -153,11 +162,10 @@ describe('activity sources', () => {
     // Honest-by-default: before the LIS is wired, instruments show no utilisation rather
     // than a fabricated one.
     const { projection } = project({
-      assetClass: 'LAB_INSTRUMENT',
       current: fresh,
       signals: [signal({ source: 'snmp', type: 'heartbeat', value: {}, observedAt: minutesBefore(600) })],
       now: NOW,
-      policy,
+      policy: policyFor('LAB_INSTRUMENT'),
     })
 
     expect(projection.status).toBe('IN_USE')
@@ -167,11 +175,10 @@ describe('activity sources', () => {
 
   it('never idles a reusable component, which has no automated activity source', () => {
     const { projection } = project({
-      assetClass: 'REUSABLE_COMPONENT',
       current: fresh,
       signals: [signal({ source: 'scan', type: 'heartbeat', value: {}, observedAt: minutesBefore(5000) })],
       now: NOW,
-      policy,
+      policy: policyFor('REUSABLE_COMPONENT'),
     })
 
     // A rack on a shelf is stored, not idle.
@@ -231,8 +238,8 @@ describe('scan and telemetry precedence', () => {
     expect(projection.status).toBe('IDLE')
   })
 
-  it('honours a configured TTL', () => {
-    const shortTtl = resolveEnginePolicy({ scanTtlMinutes: 60 })
+  it('honours a configured per-site TTL (ADR-0013)', () => {
+    const shortTtl = policyFor('IT', 60)
 
     const { projection } = projectIt({
       current: { ...fresh, scanAssertedStatus: 'IN_USE', scanAssertedAt: minutesBefore(90) },

@@ -1,6 +1,9 @@
 import type { Metadata } from 'next'
 import Link from 'next/link'
 import { can, type Permission } from '@oat/auth'
+import { prisma } from '@oat/db'
+import { revokeSessions } from '@oat/auth/server'
+import { redirect } from 'next/navigation'
 import { currentPrincipal, signOut } from '@/lib/auth'
 import './globals.css'
 
@@ -18,7 +21,9 @@ export const metadata: Metadata = {
 const NAV: Array<{ href: string; label: string; permission: Permission }> = [
   { href: '/', label: 'Dashboard', permission: 'asset:read' },
   { href: '/assets', label: 'Assets', permission: 'asset:read' },
+  { href: '/alerts', label: 'Alerts', permission: 'utilisation:read' },
   { href: '/reconciliation', label: 'Reconciliation', permission: 'reconciliation:read' },
+  { href: '/settings/idle-policy', label: 'Idle policy', permission: 'utilisation:read' },
 ]
 
 export default async function RootLayout({ children }: { children: React.ReactNode }) {
@@ -53,7 +58,21 @@ export default async function RootLayout({ children }: { children: React.ReactNo
                 <form
                   action={async () => {
                     'use server'
-                    await signOut({ redirectTo: '/signin' })
+                    // Sign-out REVOKES the token server-side; clearing the cookie is a
+                    // courtesy on top.
+                    //
+                    // Deleting the cookie alone is not reliable: a concurrent request that
+                    // refreshes the rolling session re-writes it after the deletion, and the
+                    // user lands on /signin with a live session. Measured at 4-in-8, then
+                    // 2-in-8 after switching off `redirectTo` — a coin flip either way, and
+                    // on a shared lab workstation the loser is the next person to hit Back.
+                    //
+                    // Bumping tokenVersion (ADR-0011) makes the outcome independent of that
+                    // race: whatever happens to the cookie, the token no longer validates.
+                    // See ADR-0016.
+                    await revokeSessions(prisma, principal.id)
+                    await signOut({ redirect: false })
+                    redirect('/signin')
                   }}
                   className="flex items-center gap-3"
                 >

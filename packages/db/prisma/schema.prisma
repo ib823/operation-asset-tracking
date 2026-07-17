@@ -30,11 +30,19 @@ enum AssetStatus {
   RETIRED
 }
 
-/// A laboratory site. 32 in production; Phase 0 seeds 3 (assumption A3).
+/// A laboratory site. 32 in production; we seed 3 (assumption A3).
 model Site {
-  id        String   @id @default(cuid())
-  code      String   @unique
-  name      String
+  id   String @id @default(cuid())
+  code String @unique
+  name String
+
+  /// How long a human's IN_USE/IDLE scan outranks telemetry here (ADR-0013).
+  ///
+  /// Null means "use the global default" — NOT a copy of it. A site that has never been
+  /// configured must follow the default as it changes, rather than being frozen at whatever
+  /// the default happened to be the day the site was created.
+  scanTtlMinutes Int?
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -55,10 +63,16 @@ model Asset {
   sapAssetNo String? @unique
 
   /// Barcode / QR value. The fallback floor: an asset is trackable by scan alone.
-  tag  String     @unique
-  name String
+  tag   String      @unique
+  name  String
   class AssetClass
-  status AssetStatus @default(IN_USE)
+  /// Free text, not an enum: "Analyser", "Microscope", "Centrifuge" (ADR-0014).
+  ///
+  /// Lablink names their own equipment. Subdividing AssetClass instead would mean a
+  /// migration and an SAP mapping change every time they buy a kind of machine we have not
+  /// seen — and AssetClass is a vocabulary shared with SAP, not a place for idle nuance.
+  subType String?
+  status  AssetStatus @default(IN_USE)
 
   siteId      String
   site        Site    @relation(fields: [siteId], references: [id], onDelete: Restrict)
@@ -97,10 +111,82 @@ model Asset {
   snapshots UtilisationSnapshot[]
   locations LocationHistory[]
   conflicts ConflictAlert[]
+  alerts    IdleAlert[]
 
   @@index([siteId, status])
   @@index([status, idleSince])
+  @@index([class, subType])
   @@map("asset")
+}
+
+/// An idle-policy override. Resolution: ASSET -> SUB_TYPE -> CLASS -> built-in default
+/// (ADR-0014). Only the most specific matching row applies.
+///
+/// `activitySources` is deliberately absent: it is not a tuning knob but the rule that stops
+/// a heartbeat being mistaken for use (ADR-0008). An override re-admitting SNMP as activity
+/// for one analyser would silently reintroduce fabricated utilisation for exactly the asset
+/// someone cared enough to configure.
+model IdleConfig {
+  id    String    @id @default(cuid())
+  scope IdleScope
+  /// CLASS -> "IT" · SUB_TYPE -> "LAB_INSTRUMENT:Analyser" · ASSET -> the asset id.
+  key   String
+
+  /// Minutes of quiet before the asset counts as idle.
+  thresholdMinutes Int
+  /// Minutes idle before an alert is raised. Null inherits from the next level up.
+  alertAfterMinutes Int?
+
+  updatedBy String
+  updatedAt DateTime @updatedAt
+  createdAt DateTime @default(now())
+
+  @@unique([scope, key])
+  @@map("idle_config")
+}
+
+enum IdleScope {
+  CLASS
+  SUB_TYPE
+  ASSET
+}
+
+/// An asset idle for longer than its configured alert threshold.
+///
+/// One OPEN alert per asset at a time: the sweep re-evaluates constantly, so inserting per
+/// detection would produce an alert every run for the same underlying fact and train
+/// everyone to ignore them.
+model IdleAlert {
+  id      String @id @default(cuid())
+  assetId String
+  asset   Asset  @relation(fields: [assetId], references: [id], onDelete: Cascade)
+
+  /// When the asset went quiet, and how long it has been quiet at detection.
+  idleSince        DateTime
+  idleMinutes      Int
+  /// The resolved threshold that fired, recorded so the alert stays explicable after the
+  /// config changes.
+  thresholdMinutes Int
+
+  status     AlertStatus @default(OPEN)
+  detectedAt DateTime    @default(now())
+  /// Bumped each sweep while the alert stands, so age is accurate.
+  lastSeenAt DateTime    @updatedAt
+
+  acknowledgedBy String?
+  acknowledgedAt DateTime?
+  resolvedAt     DateTime?
+
+  @@index([status, detectedAt])
+  @@index([assetId, status])
+  @@map("idle_alert")
+}
+
+enum AlertStatus {
+  OPEN
+  ACKNOWLEDGED
+  /// The asset became active again, or a human moved it out of IDLE.
+  RESOLVED
 }
 
 /// An SAP asset master record the sync could not confidently match to an OAT asset.
@@ -210,6 +296,9 @@ model SignalEvent {
 
 /// A rolled-up utilisation figure for a period. A CACHE of a derivation, not a source of
 /// truth — always rebuildable from SignalEvent. See ADR-0006.
+///
+/// A row exists only where the asset was actually OBSERVED (ADR-0015). No row means "we do
+/// not know", which is different from 0% and must never be shown as it.
 model UtilisationSnapshot {
   id      String @id @default(cuid())
   assetId String
@@ -217,10 +306,13 @@ model UtilisationSnapshot {
 
   periodStart DateTime
   periodEnd   DateTime
-  idleMinutes Int
-  busyMinutes Int
-  /// Busy as a percentage of observed time, 0–100.
-  utilisationPct Float
+
+  /// Minutes within the period we had connector coverage for. The denominator.
+  observedMinutes Int
+  busyMinutes     Int
+  idleMinutes     Int
+  /// Busy as a percentage of OBSERVED time (not of the period), 0–100.
+  utilisationPct  Float
 
   createdAt DateTime @default(now())
 

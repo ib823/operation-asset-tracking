@@ -52,15 +52,26 @@ test.describe('authentication', () => {
     await context.close()
   })
 
-  test('signing out ends access', async ({ browser }) => {
+  test('signing out ends access, even if the cookie survives', async ({ browser }) => {
     const { context, page } = await signIn(browser, USERS.labManager)
 
     await page.goto('/assets')
+    await expect(page.getByTestId('asset-row').first()).toBeVisible()
+
     await page.getByRole('button', { name: 'Sign out' }).click()
     await page.waitForURL(/\/signin/)
 
+    // Asserts the PROPERTY (no access), not the mechanism (no cookie). Deleting the cookie
+    // is genuinely unreliable — a concurrent request refreshing the rolling session can
+    // re-write it after the deletion, measured at up to 4-in-8. Sign-out therefore REVOKES
+    // the token server-side (ADR-0016), so a surviving cookie is worthless. Testing for the
+    // cookie's absence would fail on that race while access was correctly denied.
     await page.goto('/assets')
     await expect(page).toHaveURL(/\/signin/)
+    await expect(page.locator('body')).not.toContainText('LAB-0001')
+
+    // The API agrees — the token is dead, not merely forgotten.
+    expect((await context.request.get('/api/assets')).status()).toBe(401)
 
     await context.close()
   })

@@ -1,7 +1,7 @@
 import type { Prisma } from '@oat/db'
 import { type AssetClass, type PrismaClient } from '@oat/db'
 import { project, type AssetProjection } from './idle-engine'
-import { DEFAULT_ENGINE_POLICY, type EnginePolicy } from './idle-policy'
+import { resolveIdlePolicy, resolveScanTtlMinutes, type EnginePolicy, type IdleConfigOverride } from './idle-policy'
 import type { SignalInput } from './signals'
 
 /**
@@ -39,12 +39,11 @@ export interface IngestResult {
 export async function ingestSignals(
   prisma: PrismaClient,
   signals: readonly SignalInput[],
-  options: { now?: Date; policy?: EnginePolicy } = {},
+  options: { now?: Date } = {},
 ): Promise<IngestResult> {
   if (signals.length === 0) return { accepted: 0, duplicates: 0, assetsUpdated: [] }
 
   const now = options.now ?? new Date()
-  const policy = options.policy ?? DEFAULT_ENGINE_POLICY
 
   const written = await prisma.signalEvent.createMany({
     data: signals.map((s) => ({
@@ -61,8 +60,11 @@ export async function ingestSignals(
   })
 
   const assetIds = [...new Set(signals.map((s) => s.assetId))]
+  // Load the config once for the whole batch rather than per asset: it is a small table and
+  // re-reading it per asset would dominate a poll covering hundreds of devices.
+  const overrides = await loadIdleConfig(prisma)
   for (const assetId of assetIds) {
-    await reprojectAsset(prisma, assetId, { now, policy })
+    await reprojectAsset(prisma, assetId, { now, overrides })
   }
 
   return {
@@ -81,25 +83,35 @@ export async function ingestSignals(
 export async function reprojectAsset(
   prisma: PrismaClient,
   assetId: string,
-  options: { now?: Date; policy?: EnginePolicy } = {},
+  options: { now?: Date; overrides?: readonly IdleConfigOverride[] } = {},
 ): Promise<AssetProjection | null> {
   const now = options.now ?? new Date()
-  const policy = options.policy ?? DEFAULT_ENGINE_POLICY
+  const overrides = options.overrides ?? (await loadIdleConfig(prisma))
 
   const asset = await prisma.asset.findUnique({
     where: { id: assetId },
     select: {
       id: true,
       class: true,
+      subType: true,
       status: true,
       idleSince: true,
       lastSeenAt: true,
       lastActiveAt: true,
       scanAssertedStatus: true,
       scanAssertedAt: true,
+      site: { select: { scanTtlMinutes: true } },
     },
   })
   if (!asset) return null
+
+  // Resolve the policy for THIS asset: asset -> sub-type -> class -> default (ADR-0014),
+  // plus its site's scan TTL (ADR-0013). The engine takes resolved values; it has no
+  // business knowing what a Site or an IdleConfig is.
+  const policy: EnginePolicy = {
+    idle: resolveIdlePolicy(asset, overrides),
+    scanTtlMinutes: resolveScanTtlMinutes(asset.site),
+  }
 
   const signals = await prisma.signalEvent.findMany({
     where: { assetId, observedAt: { gte: new Date(now.getTime() - REPROJECTION_WINDOW_MS) } },
@@ -108,7 +120,7 @@ export async function reprojectAsset(
   })
 
   const { projection, conflict } = project({
-    assetClass: asset.class,
+    policy,
     current: {
       status: asset.status,
       idleSince: asset.idleSince,
@@ -119,7 +131,6 @@ export async function reprojectAsset(
     },
     signals: signals as unknown as SignalInput[],
     now,
-    policy,
   })
 
   await prisma.asset.update({
@@ -135,8 +146,73 @@ export async function reprojectAsset(
   })
 
   await recordConflict(prisma, assetId, conflict)
+  await recordIdleAlert(prisma, assetId, projection, policy, now)
 
   return projection
+}
+
+/**
+ * Load the idle-config overrides.
+ *
+ * A small table read once per sweep or ingest batch, not per asset (ADR-0014).
+ */
+export async function loadIdleConfig(prisma: PrismaClient): Promise<IdleConfigOverride[]> {
+  const rows = await prisma.idleConfig.findMany({
+    select: { scope: true, key: true, thresholdMinutes: true, alertAfterMinutes: true },
+  })
+  return rows
+}
+
+/**
+ * Raise or clear the asset's idle alert (ADR-0015 threshold alerts).
+ *
+ * One OPEN alert per asset: the sweep re-evaluates constantly, so inserting per detection
+ * would produce an alert every run for the same underlying fact and train everyone to ignore
+ * them. An ACKNOWLEDGED alert is left alone — a human has seen it and does not need it
+ * re-raised — but it still resolves when the asset comes back to life.
+ */
+async function recordIdleAlert(
+  prisma: PrismaClient,
+  assetId: string,
+  projection: AssetProjection,
+  policy: EnginePolicy,
+  now: Date,
+): Promise<void> {
+  const idleMinutes =
+    projection.status === 'IDLE' && projection.idleSince
+      ? Math.floor((now.getTime() - projection.idleSince.getTime()) / 60_000)
+      : 0
+
+  const shouldAlert = idleMinutes >= policy.idle.alertAfterMinutes
+  const existing = await prisma.idleAlert.findFirst({
+    where: { assetId, status: { in: ['OPEN', 'ACKNOWLEDGED'] } },
+  })
+
+  if (!shouldAlert) {
+    if (existing) {
+      await prisma.idleAlert.update({
+        where: { id: existing.id },
+        data: { status: 'RESOLVED', resolvedAt: now },
+      })
+    }
+    return
+  }
+
+  if (existing) {
+    // Refresh the duration so age stays accurate, but do not re-open an acknowledged alert.
+    await prisma.idleAlert.update({ where: { id: existing.id }, data: { idleMinutes } })
+    return
+  }
+
+  await prisma.idleAlert.create({
+    data: {
+      assetId,
+      idleSince: projection.idleSince!,
+      idleMinutes,
+      // Recorded so the alert stays explicable after someone changes the config.
+      thresholdMinutes: policy.idle.alertAfterMinutes,
+    },
+  })
 }
 
 /**
@@ -189,12 +265,9 @@ async function recordConflict(
  * This is the sweep that makes idleness a function of the clock rather than of a signal
  * happening to arrive: an asset goes quiet precisely *because* nothing is being reported.
  */
-export async function sweepIdleAssets(
-  prisma: PrismaClient,
-  options: { now?: Date; policy?: EnginePolicy } = {},
-): Promise<{ swept: number }> {
+export async function sweepIdleAssets(prisma: PrismaClient, options: { now?: Date } = {}): Promise<{ swept: number }> {
   const now = options.now ?? new Date()
-  const policy = options.policy ?? DEFAULT_ENGINE_POLICY
+  const overrides = await loadIdleConfig(prisma)
 
   const candidates = await prisma.asset.findMany({
     // Administrative statuses are held by a human decision; the sweep has no business
@@ -211,7 +284,7 @@ export async function sweepIdleAssets(
   })
 
   for (const { id } of candidates) {
-    await reprojectAsset(prisma, id, { now, policy })
+    await reprojectAsset(prisma, id, { now, overrides })
   }
 
   return { swept: candidates.length }

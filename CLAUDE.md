@@ -48,7 +48,7 @@ impossible by construction. See `docs/decisions/0004-sap-boundary-typed-contract
 | DB / ORM  | PostgreSQL / Prisma                                        |
 | UI        | Tailwind CSS + shadcn/ui                                   |
 | Auth      | Auth.js v5 (beta, pinned) + RBAC; OIDC/SAML seam (SAP IAS) |
-| Jobs      | pg-boss (pure Postgres)                                    |
+| Jobs      | pg-boss (chosen, ADR-0005; wired in Phase 3)               |
 | API       | REST, documented with OpenAPI                              |
 | Packaging | Docker + docker-compose, `.devcontainer`                   |
 | Tests     | Vitest (unit/integration) + Playwright (e2e)               |
@@ -96,6 +96,17 @@ Confirmed with the client in Phase 1. Each is enforced in code and covered by te
   only: an analyser idle overnight still answers SNMP, and counting that as use would make
   every instrument report ~100% utilisation forever — the OAT's central claim, confidently
   false. An instrument with no LIS feed reports _unknown_, never 100% (ADR-0008).
+- **Idle config resolves below class**: asset → sub-type → class → default. `subType` is free
+  text, so Lablink names their own equipment without a migration; `AssetClass` stays a
+  vocabulary shared with SAP. **`activitySources` is never overridable** — it is the rule
+  that keeps utilisation honest, not a tuning knob (ADR-0014).
+- **The scan TTL is per-site** (default 12h): "one shift" is not one number across 32 sites
+  (ADR-0013).
+- **Utilisation is measured against OBSERVED time, never elapsed time**, and **absence of
+  data is not zero**. No coverage → no snapshot → the UI says "not measured". A connector
+  outage must never read as idleness: that is what would justify disposing of a busy machine.
+  Rollup eligibility is derived from deployed connectors, so instruments begin rolling up
+  the day the LIS is enabled (ADR-0015).
 - **SAP matching precedence**: existing link → **tag** → **serial** → **manual**. Unmatched
   records go to the **reconciliation queue**. **The OAT never creates assets**, in either
   direction: SAP knowing about an asset is not evidence anyone tagged it (ADR-0009).
@@ -105,6 +116,9 @@ Confirmed with the client in Phase 1. Each is enforced in code and covered by te
   `UNDER_REPAIR`/`RETIRED` are **sticky — human-cleared only, no TTL**. Both events always
   persist; sustained conflict raises an alert (ADR-0010).
 - **Access control lives in the page/route, never in middleware alone** (ADR-0012).
+- **Sign-out revokes the token** (bumps `tokenVersion`); clearing the cookie is a courtesy.
+  Deleting the cookie is not reliable — a concurrent rolling-session refresh re-writes it,
+  which left sign-out leaving the session LIVE about half the time (ADR-0016).
 
 ## Phase plan
 
@@ -138,5 +152,12 @@ security bugs here. Ask "can an anonymous caller read this?" and check with curl
 (ADR-0012). Likewise `scopeToSite` once returned `null` for both "unrestricted" and
 "restricted to nowhere", which would have shown a misconfigured branch user all 32 sites.
 
-Corollary: **a test must assert its preconditions actually happened.** A SOTI poll that
-silently 401'd once made a whole verification vacuous while reading as green.
+Corollary: **a test must assert its preconditions actually happened**, and **check the probe
+can see what it claims to measure**. A SOTI poll that silently 401'd made a whole
+verification vacuous while reading green; a leak probe that sliced the page body before
+searching it reported 0 leaks while 4 were happening in front of it.
+
+**An intermittent failure on a security path deserves a probe, not a wait.** "Flaky test"
+was the wrong diagnosis for a sign-out that genuinely left the session live 50% of the time
+(ADR-0016). It passed alone, failed in the suite, and passed when a wait was added — one
+`await` from burying a real auth bypass forever.

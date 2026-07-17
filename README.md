@@ -118,10 +118,21 @@ as fresh idleness, and makes every utilisation figure defensible to an auditor.
   ([ADR-0009](docs/decisions/0009-sap-matching-precedence-and-reconciliation-queue.md)).
 - **Scan and telemetry own different facts.** Scan owns location, custodian, and
   administrative status; telemetry owns idle/utilisation. On the one contested question
-  (IN_USE↔IDLE) a scan wins for a **12-hour TTL**, then telemetry resumes automatically —
-  so operators' scans have real effect, and stale human judgement cannot outrank current
-  machine fact forever. `UNDER_REPAIR`/`RETIRED` are sticky and human-cleared only
-  ([ADR-0010](docs/decisions/0010-scan-and-telemetry-precedence.md)).
+  (IN_USE↔IDLE) a scan wins for a **TTL** (12h default, per-site —
+  [ADR-0013](docs/decisions/0013-scan-ttl-is-per-site-config.md)), then telemetry resumes
+  automatically, so operators' scans have real effect and stale human judgement cannot
+  outrank current machine fact forever. `UNDER_REPAIR`/`RETIRED` are sticky and
+  human-cleared only ([ADR-0010](docs/decisions/0010-scan-and-telemetry-precedence.md)).
+- **Utilisation is measured against observed time — and absence of data is not zero.** The
+  naive `busy / elapsed` cannot tell "this asset was idle" from "we weren't watching", so a
+  connector outage becomes evidence against the machine and a busy analyser reports 40% with
+  a chart to back it up. No coverage means **no snapshot**, and the UI says _not measured_.
+  Every figure carries its denominator
+  ([ADR-0015](docs/decisions/0015-utilisation-is-measured-against-observed-time.md)).
+- **Idle config resolves below class**: asset → sub-type → class → default. `subType` is free
+  text, so Lablink names their own equipment without a migration — an analyser and a
+  microscope are both lab instruments and are not the same question
+  ([ADR-0014](docs/decisions/0014-idle-config-resolves-below-class.md)).
 
 ## Access control
 
@@ -139,18 +150,23 @@ redirects and leaks nothing.
 
 All optional, feature-flagged, independently deployable.
 
-| #   | Connector                                          | Status                                  |
-| --- | -------------------------------------------------- | --------------------------------------- |
-| 1   | `scan` — barcode/QR → location, assignment, status | **Built.** The fallback floor.          |
-| 2   | `soti` — MDM device status, idle, battery          | Mock (Phase 0); real adapter in Phase 2 |
-| 3   | `osquery` / Fleet — desktop OS idle, uptime        | Phase 3                                 |
-| 4   | `snmp` — network printers and infrastructure       | Phase 3                                 |
-| 5   | `lis` — instrument activity via HL7/ASTM           | Phase 3                                 |
+| #   | Connector                                          | Status                                       |
+| --- | -------------------------------------------------- | -------------------------------------------- |
+| 1   | `scan` — barcode/QR → location, assignment, status | **Built.** The fallback floor.               |
+| 2   | `soti` — MDM device status, idle, battery          | **Built.** Real adapter + mock fallback      |
+| 3   | `osquery` / Fleet — desktop OS idle, uptime        | Phase 3                                      |
+| 4   | `snmp` — network printers and infrastructure       | Phase 3                                      |
+| 5   | `lis` — instrument activity via HL7/ASTM           | Phase 3 — **unlocks instrument utilisation** |
 
 **Graceful degradation is a hard requirement.** Disable every connector and the register
 stays fully usable via scan and manual entry. The idle engine will not conclude "idle" for
 an asset no connector has ever reported activity for — absence of evidence is not evidence
 of idleness.
+
+Utilisation rollup eligibility is **derived** from which connectors are deployed, never
+hardcoded: lab instruments report no utilisation until the LIS connector is enabled, then
+start automatically with no code change. That gap is deliberate — an analyser idle overnight
+still answers SNMP, so an honest _not measured_ beats a fabricated 100%.
 
 ## Licensing
 

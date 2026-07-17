@@ -1,5 +1,5 @@
-import type { AssetClass, AssetStatus } from '@oat/db'
-import { classPolicy, isActivitySource, type EnginePolicy } from './idle-policy'
+import type { AssetStatus } from '@oat/db'
+import { isActivitySource, type EnginePolicy } from './idle-policy'
 import { parseSignalValue, type SignalInput, type SignalSource, type SignalType } from './signals'
 
 /**
@@ -50,12 +50,17 @@ export interface ProjectResult {
 }
 
 export interface ProjectInput {
-  assetClass: AssetClass
+  /**
+   * The policy already RESOLVED for this asset (ADR-0014): asset → sub-type → class →
+   * default, plus the site's scan TTL (ADR-0013). The engine takes the resolved values
+   * rather than the asset's class, because it has no business knowing what a Site or an
+   * IdleConfig is.
+   */
+  policy: EnginePolicy
   current: AssetProjection
   /** Signals in any order — late and out-of-order arrival is normal. */
   signals: readonly SignalInput[]
   now: Date
-  policy: EnginePolicy
 }
 
 /**
@@ -163,8 +168,8 @@ function telemetryVerdict(
  * reduces signals to maxima rather than folding state through them in sequence — which is
  * what lets it be re-run over history when the idle policy changes.
  */
-export function project({ assetClass, current, signals, now, policy }: ProjectInput): ProjectResult {
-  const { thresholdMinutes } = classPolicy(policy.idle, assetClass)
+export function project({ current, signals, now, policy }: ProjectInput): ProjectResult {
+  const { thresholdMinutes } = policy.idle
 
   let lastSeenAt = current.lastSeenAt
   // Seed from the prior projection so a batch with no activity evidence — or an empty batch,
@@ -191,7 +196,7 @@ export function project({ assetClass, current, signals, now, policy }: ProjectIn
 
     // ADR-0008: only sources this class trusts may evidence activity. Everything else is
     // presence. This is what keeps an instrument's heartbeat from reading as utilisation.
-    if (evidence.activeAt && isActivitySource(policy.idle, assetClass, signal.source)) {
+    if (evidence.activeAt && isActivitySource(policy.idle, signal.source)) {
       lastActiveAt = latest(lastActiveAt, evidence.activeAt)
     }
 

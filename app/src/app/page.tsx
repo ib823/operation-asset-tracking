@@ -1,5 +1,5 @@
 import { requirePermission } from '@/lib/page-auth'
-import { siteStatusBreakdown } from '@oat/core'
+import { siteStatusBreakdown, siteUtilisation } from '@oat/core'
 import { prisma } from '@oat/db'
 import Link from 'next/link'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
@@ -11,7 +11,12 @@ export const dynamic = 'force-dynamic'
 export default async function DashboardPage() {
   await requirePermission('asset:read', '/')
 
-  const sites = await siteStatusBreakdown(prisma)
+  const [sites, utilisation, openAlerts] = await Promise.all([
+    siteStatusBreakdown(prisma),
+    siteUtilisation(prisma),
+    prisma.idleAlert.count({ where: { status: 'OPEN' } }),
+  ])
+  const utilisationBySite = new Map(utilisation.map((u) => [u.siteId, u]))
 
   const totals = sites.reduce(
     (acc, site) => ({
@@ -32,10 +37,11 @@ export default async function DashboardPage() {
         </p>
       </div>
 
-      <div className="grid gap-4 sm:grid-cols-3">
+      <div className="grid gap-4 sm:grid-cols-4">
         <SummaryTile label="In use" value={totals.inUse} testId="total-in-use" />
         <SummaryTile label="Idle" value={totals.idle} testId="total-idle" />
         <SummaryTile label="Under repair" value={totals.underRepair} testId="total-under-repair" />
+        <SummaryTile label="Idle alerts" value={openAlerts} testId="total-alerts" />
       </div>
 
       <Card data-testid="idle-by-site-tile">
@@ -57,7 +63,8 @@ export default async function DashboardPage() {
                   </Link>
                   <span className="text-sm text-muted-foreground">
                     <span data-testid="site-in-use-count">{site.inUse}</span> in use ·{' '}
-                    <span data-testid="site-idle-count">{site.idle}</span> idle
+                    <span data-testid="site-idle-count">{site.idle}</span> idle ·{' '}
+                    <Utilisation site={utilisationBySite.get(site.siteId)} />
                   </span>
                 </div>
 
@@ -78,6 +85,30 @@ export default async function DashboardPage() {
         </CardContent>
       </Card>
     </div>
+  )
+}
+
+/**
+ * Utilisation over the last 7 days, or an honest "not measured".
+ *
+ * Null means no snapshot: nothing was observed, because no connector feeding this site's
+ * assets is deployed. Rendering that as 0% would be the exact lie ADR-0015 exists to
+ * prevent — and it is the number that would justify disposing of a busy machine.
+ */
+function Utilisation({ site }: { site?: { utilisationPct: number | null; measured: number } }) {
+  if (!site || site.utilisationPct === null) {
+    return (
+      <span data-testid="site-utilisation" title="No connector data — utilisation is unknown, not zero">
+        utilisation <span className="italic">not measured</span>
+      </span>
+    )
+  }
+
+  return (
+    <span data-testid="site-utilisation">
+      <span className="tabular-nums">{site.utilisationPct}%</span> utilisation
+      <span className="text-xs"> ({site.measured} measured)</span>
+    </span>
   )
 }
 
