@@ -47,10 +47,29 @@ export default auth((request) => {
     return NextResponse.json({ error: 'Unauthorised' }, { status: 401 })
   }
 
-  const signin = new URL('/signin', request.nextUrl.origin)
+  const signin = new URL('/signin', externalOrigin(request))
   signin.searchParams.set('from', pathname)
   return NextResponse.redirect(signin)
 })
+
+/**
+ * The origin the CLIENT used, which is not the one the server sees behind a proxy.
+ *
+ * `request.nextUrl.origin` is the container's own address (`http://localhost:3000`). Sending
+ * a browser there redirects it to a dead URL — its own machine. Any reverse proxy hits this:
+ * the Codespaces port forward, and whatever load balancer fronts the Malaysia-region deploy.
+ *
+ * X-Forwarded-* is only trustworthy because the app is never exposed directly — the proxy
+ * always sets them. Falls back to the request's own origin when they are absent (a direct
+ * `localhost:3000` hit in development), which is correct there.
+ */
+function externalOrigin(request: { headers: Headers; nextUrl: URL }): string {
+  const host = request.headers.get('x-forwarded-host')
+  if (!host) return request.nextUrl.origin
+
+  const proto = request.headers.get('x-forwarded-proto') ?? 'https'
+  return `${proto}://${host}`
+}
 
 export const config = {
   // Skip Next internals and static files; everything else goes through the gate.
