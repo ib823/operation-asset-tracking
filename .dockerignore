@@ -17,4 +17,3 @@ test-results
 playwright-report
 coverage
 *.tsbuildinfo
-sbom.json

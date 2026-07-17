@@ -4,7 +4,7 @@ Living log. Update after every milestone. Read with `CLAUDE.md` at session start
 
 ## Current phase
 
-**Phase 3 — Additional connectors: COMPLETE.** Awaiting the phase gate. Phase 4 next.
+**Phase 4 — Dashboards & rollout: COMPLETE.** Awaiting the phase gate. All five phases built.
 
 ## Task list
 
@@ -44,28 +44,59 @@ See git history and ADRs 0001–0016. CI green on GitHub Actions throughout.
       message stream would look finished and fail on contact. The open questions are recorded
       in `packages/connectors/src/lis.ts`.
 
-### Phase 4 — not started
+### Phase 4 — Dashboards & rollout — done
 
-32-site heatmap, idle list, location history, alerting, SIEM export, hardening, handover docs,
-AMS runbook, SBOM. Do not scaffold early.
+Split by durability (ADR-0021): logic final everywhere, presentation provisional on three views.
+
+**Built fully:**
+
+- [x] **Route/page disclosure test** — DISCOVERS routes from the filesystem; a new route with
+      no stated expectation fails the suite. Caught `/heatmap` shipping without one, first run.
+- [x] **Scheduler last-run + worker-health indicator** (ADR-0022) — four states, measured from
+      `startedAt` so a hang shows as stale. Renders nothing when healthy.
+- [x] **SIEM/audit export** — NDJSON, cursor-paginated, `audit:read` only. Plus **auth events**
+      (`AUTH_SIGN_IN_FAILED` etc.), which were missing entirely.
+- [x] **Security hardening** (ADR-0023) — CSP + headers from middleware, sign-in rate limiting,
+      six gaps named rather than hidden.
+- [x] **Handover docs + AMS runbook + SBOM** — `docs/HANDOVER.md`, `docs/RUNBOOK.md`,
+      `sbom.json` committed and gated in CI against drift.
+
+**Functional-not-final** (ADR-0021 — plain markup on purpose, logic reviewed):
+
+- [x] 32-site utilisation heatmap
+- [x] Location history view
+- [x] Alerting UI, now surfacing `ConflictAlert` (written since Phase 2, never shown)
+
+**Deferred, with reasons:**
+
+- [ ] **CSP nonces.** Next inlines the RSC payload, so `'unsafe-inline'` stands until we
+      measure the dynamic-rendering cost of nonces. Revisit with the design system, when the
+      pages are being touched anyway (ADR-0023 gap 1).
+- [ ] **CVE scan in CI.** The licence gate is not a vulnerability gate. It will produce
+      findings needing triage — not something to bolt on at the end of a phase (gap 6).
+- [ ] **Least-privilege DB roles + secret manager.** Deploy-time decisions, blocked on A5.
+      Documented in the runbook rather than invented here.
 
 ## Done
 
-- ADRs 0001–0020.
-- Phases 0–3 complete and verified; CI green throughout.
-- **Six real defects found by verification** this phase, none visible in review — see below.
+- ADRs 0001–0023.
+- **All five phases complete** and verified; CI green throughout.
+- **Nine real defects found by verification** across Phases 1–4 — not one visible in review.
 
 ## Next
 
-1. **Phase 3 gate review.**
-2. Phase 4: the 32-site heatmap, location history, alerting UI (`ConflictAlert` is written but
-   not surfaced), SIEM/audit export, security hardening, handover docs + AMS runbook + SBOM.
-3. Two Phase 4 items already earned by earlier bugs:
-   - **A route/page disclosure test**: sign in as each role and assert what every page reveals.
-     Both scope leaks were invisible in review and obvious the moment someone signed in and
-     looked (ADR-0012, ADR-0017).
-   - **Surface scheduler last-run times.** A deployment with no worker looks healthy and
-     silently never sweeps — the dashboard just freezes in the past (ADR-0020).
+1. **Phase 4 gate review — and the phase plan is complete.**
+2. **Before go-live** (also in `docs/HANDOVER.md`):
+   - A **penetration test**. ADR-0023 names six gaps deliberately; that is a floor, not a
+     certificate.
+   - **Settle A10** — the provisional thresholds. Once rollups have run over real telemetry for
+     a few weeks, propose numbers from the observed distribution rather than judgement. That is
+     the honest way to close it, and it needs data we do not yet have.
+   - Least-privilege DB roles, a secret manager, and a CVE scan in CI.
+3. **Chase C1–C7.** C4 (the LIS feed) remains the highest-value: instrument utilisation reports
+   nothing until it lands, by design.
+4. The design system restyles the three functional-not-final views (ADR-0021). Logic is final;
+   do not rebuild it.
 
 ## Client dependencies (not build tasks)
 
@@ -130,56 +161,57 @@ Then: read `CLAUDE.md` → this file → continue at **Next**.
 
 Run 2026-07-17, Node 22, Postgres 16.
 
-| Check                                                | Result                                                       |
-| ---------------------------------------------------- | ------------------------------------------------------------ |
-| `pnpm lint` · `pnpm format:check` · `pnpm typecheck` | Pass                                                         |
-| `pnpm test`                                          | **192 passed** / 192                                         |
-| `pnpm e2e`                                           | **72 passed** / 72 across both projects (`main`, `degraded`) |
-| `pnpm licences`                                      | Pass — 95 production packages, all permissive                |
-| `docker compose up`                                  | Pass — postgres + app + worker; scheduler observed firing    |
+| Check                                                | Result                                                         |
+| ---------------------------------------------------- | -------------------------------------------------------------- |
+| `pnpm lint` · `pnpm format:check` · `pnpm typecheck` | Pass                                                           |
+| `pnpm test`                                          | **207 passed** / 207                                           |
+| `pnpm e2e`                                           | **100 passed** / 100 across both projects (`main`, `degraded`) |
+| `pnpm licences`                                      | Pass — 95 production packages, all permissive                  |
+| `pnpm sbom`                                          | Up to date; committed and gated in CI against drift            |
+| `docker compose up`                                  | Pass — postgres + app + worker                                 |
 
-### Phase 3 acceptance criteria
+### Phase 4 acceptance criteria
 
-| Criterion                   | Evidence                                                                                                                                                                                       |
-| --------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Per-connector tests         | SNMP 16 (against a real agent) · osquery 15 · LIS 11 · SOTI 15 · scan 9                                                                                                                        |
-| Each feature-flagged        | Verified: a disabled connector returns 503 naming its flag, and the scheduler does not schedule it at all.                                                                                     |
-| **Degradation test passes** | 10 tests against a **real** degraded deployment (a second server with every automated connector off): register fully usable by scan, SAP link works, nothing reads 0%, no asset libelled idle. |
-| pg-boss wired once          | Verified in compose: `[scheduler] soti (mock): 0 accepted`, `[scheduler] idle sweep: 1 assets re-projected`, and three crons registered in `pgboss.schedule`.                                  |
+| Criterion                                        | Evidence                                                                                                                                                                                                                                                                                                  |
+| ------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Route/page disclosure test                       | 16 tests. **Discovers** routes from the filesystem, so it cannot go stale — it caught `/heatmap` shipping with no stated expectation on its first run. Asserts: no page renders to an anonymous visitor, no page or API returns another site to a branch user, and every route's RBAC matches the matrix. |
+| Scheduler last-run + health                      | Verified live: worker stopped → header reads `never-run` and `?deep=1` agrees; worker started → `healthy`, badge disappears, heartbeats in `job_run`.                                                                                                                                                     |
+| SIEM/audit export                                | NDJSON, cursor-paginated, `audit:read` only. Auth events included — verified that a failed sign-in is recorded **with the attempted email even when no such account exists**, and that the password never reaches the log.                                                                                |
+| Security hardening                               | Headers on every response including the 404; CSP forbids `unsafe-eval` and all third parties; sign-in rate limited. Six gaps named in ADR-0023.                                                                                                                                                           |
+| Handover docs + SBOM + runbook                   | `docs/HANDOVER.md`, `docs/RUNBOOK.md`, `sbom.json` (101 components), gated in CI.                                                                                                                                                                                                                         |
+| 32-site heatmap · location history · alerting UI | Functional-not-final (ADR-0021). Logic and scoping final and tested; markup plain on purpose.                                                                                                                                                                                                             |
 
-### Real defects found by verification this phase
+### Real defects found by verification, all four phases
 
-1. **The dashboard leaked every site to a branch user** (ADR-0017). The register was scoped
-   and tested; the dashboard was never scoped at all. Found by signing in and looking.
-2. **A scan could not clear UNDER_REPAIR** — a genuine workflow bug, live for two phases. The
-   engine tracked the latest _administrative_ and latest _contested_ assertion separately and
-   let administrative win unconditionally, so a re-projection replayed January's "under
-   repair" over today's "it's back in use". An operator could put an asset into repair and
-   never take it out. The unit test passed because it fed **one** signal; `reprojectAsset`
-   replays the whole log. Fixed: latest human word wins, whichever kind. Regression tests added.
-3. **SNMP spoke v1, where a missing OID fails the whole request.** We ask every device for the
-   printer page counter, so every non-printer read as unreachable and reported nothing.
-   `net-snmp` defaults to v1; the code comment confidently described the v2c behaviour. **Only
-   a real agent could have shown this** — a mock built from my own assumptions would have
-   agreed with me.
-4. **`tsc --build` passed on stale incremental state while `next build` failed on the same
-   code.** A gate that can silently pass. Now `--force` (~2s more).
-5. **The Docker build was failing and `compose up` started the stale image anyway**, so my
-   changes silently never took effect — I spent time reading an old build as a code bug.
-6. **The entrypoint ignored its command**, so the new worker service ran `next start` and
-   looked like it was working.
+Nine, and **not one was visible in the code**. Two passed their own unit tests. One "flaky"
+test was a real auth bypass, one `await` from being papered over permanently.
+
+1. Middleware auth **failed open** — the register served unauthenticated (ADR-0012).
+2. `scopeToSite` returned `null` for both "unrestricted" and "restricted to nowhere" — a
+   misconfigured branch user would have seen all 32 sites.
+3. A `.env` was baked into the Docker image.
+4. **Sign-out left the session live ~50% of the time** (ADR-0016). Probed 4/8 leaks.
+5. The **dashboard leaked every site** to a branch user while correctly refusing the rows
+   (ADR-0017).
+6. **A scan could not clear `UNDER_REPAIR`** — live for two phases. Operators could put an
+   asset into repair and never take it out.
+7. **SNMP spoke v1**, where a missing OID fails the whole request, so every non-printer read as
+   unreachable. Only a real agent could have shown it.
+8. `tsc --build` passed on stale incremental state while `next build` failed on the same code.
+9. The Docker build failed while `compose up` silently served the stale image.
 
 ### Known caveats
 
-1. **Auth.js v5 is beta** (`5.0.0-beta.31`), pinned. Revisit each gate.
+1. **Auth.js v5 is beta** (`5.0.0-beta.31`), pinned. Revisit at any upgrade.
 2. **Sign-out is global across a user's devices** (ADR-0016). Accepted.
-3. **The osquery, SOTI and LIS adapters have never spoken to the real thing** (C3/C4/C6). SNMP
-   has — against a generic snmpd, not a printer, so `prtMarkerLifeCount` handling is verified
-   only for its _absence_ (A18).
-4. **A16: the poll intervals are intentions, not measurements.** They set the coverage gaps.
-5. **`ConflictAlert` is written but not surfaced.** Phase 4.
-6. **No route/page disclosure test yet.** Both scope leaks would have been caught by one.
-7. **A worker-less deployment looks healthy and silently never sweeps.** Phase 4 should
-   surface last-run times.
+3. **CSP allows `unsafe-inline` for scripts** — Next inlines the RSC payload. Nonces force
+   dynamic rendering; cost unmeasured (ADR-0023 gap 1).
+4. **Rate limiting is in-memory, per process.** Sized for opportunistic password spray from one
+   source. A distributed attack is the load balancer's job (gap 2).
+5. **The osquery, SOTI and LIS adapters have never spoken to the real thing** (C3/C4/C6). SNMP
+   has, against a generic snmpd — so `prtMarkerLifeCount` is verified only for its _absence_.
+6. **A16: the poll intervals are intentions, not measurements.** They set the coverage gaps.
+7. **No CVE scan in CI.** The licence gate is not a vulnerability gate (gap 6).
 8. **`REPROJECTION_WINDOW_MS` is 7 days.** A signal older than that arriving late is stored but
-   does not move the projection. Revisit with retention in Phase 4.
+   does not move the projection. Needs a retention policy alongside it.
+9. **Three views are deliberately unstyled** (ADR-0021). Plain on purpose; logic reviewed.

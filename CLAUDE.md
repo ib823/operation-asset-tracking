@@ -124,9 +124,20 @@ Confirmed with the client in Phase 1. Each is enforced in code and covered by te
 - **Access control lives in the page/route, never in middleware alone** (ADR-0012), and
   applies to **aggregates as well as rows** — a count is a fact about the rows. Seeing every
   site needs the explicit `site:read:all` grant, which BRANCH does not have (ADR-0017).
+  A disclosure suite discovers every route and fails if one has no stated expectation.
+- **Sign-out revokes the token**; clearing the cookie is a courtesy (ADR-0016).
+- **A stopped worker must be visible** — it silently freezes every number (ADR-0022).
+- **Three views are deliberately unstyled** (ADR-0021): heatmap, location history, alerting.
+  Logic final, presentation provisional. Plain on purpose — do not rebuild the logic.
 - **Sign-out revokes the token** (bumps `tokenVersion`); clearing the cookie is a courtesy.
   Deleting the cookie is not reliable — a concurrent rolling-session refresh re-writes it,
   which left sign-out leaving the session LIVE about half the time (ADR-0016).
+
+## Status
+
+All five phases (0–4) are built and verified. `PROGRESS.md` holds the current state, the
+outstanding client dependencies (C1–C7), and the pre-go-live list. `docs/HANDOVER.md` is the
+orientation for whoever inherits this; `docs/RUNBOOK.md` is the on-call guide.
 
 ## Phase plan
 

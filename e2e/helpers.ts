@@ -98,6 +98,11 @@ export async function resetOperational(): Promise<void> {
   await prisma.signalEvent.deleteMany()
   await prisma.conflictAlert.deleteMany()
   await prisma.idleAlert.deleteMany()
+  // The scheduler's heartbeat is operational state too. A test asserting "no worker is
+  // running" must start from no heartbeat — otherwise a locally-running compose worker
+  // writing to the same database makes the app correctly report healthy, and the test fails
+  // for a reason that has nothing to do with the code.
+  await prisma.jobRun.deleteMany()
   await prisma.locationHistory.deleteMany()
   await prisma.utilisationSnapshot.deleteMany()
   await prisma.reconciliationItem.deleteMany()

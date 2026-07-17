@@ -136,6 +136,49 @@ export default async function AssetDetailPage({ params }: { params: Promise<{ id
         </Card>
       </div>
 
+      {/* FUNCTIONAL, NOT FINAL — presentation is provisional (ADR-0021). The data and the
+          scoping are final; the markup will be restyled by the design system. */}
+      <Card>
+        <CardHeader>
+          <CardTitle>Location history</CardTitle>
+          <CardDescription>
+            Where this asset has been, and who moved it. Append-only — a move is never edited, only added to.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="px-0 pb-0">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Moved</TableHead>
+                <TableHead>From</TableHead>
+                <TableHead>To</TableHead>
+                <TableHead>Source</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {asset.locations.length === 0 ? (
+                <TableRow>
+                  <TableCell colSpan={4} className="py-8 text-center text-sm text-muted-foreground">
+                    No recorded moves. Location is captured when someone scans the asset somewhere new.
+                  </TableCell>
+                </TableRow>
+              ) : (
+                asset.locations.map((move) => (
+                  <TableRow key={move.id} data-testid="location-row">
+                    <TableCell className="whitespace-nowrap text-muted-foreground">
+                      {formatDateTime(move.movedAt)}
+                    </TableCell>
+                    <TableCell className="text-muted-foreground">{move.from ?? '—'}</TableCell>
+                    <TableCell className="font-medium">{move.to}</TableCell>
+                    <TableCell className="text-sm text-muted-foreground">{move.source}</TableCell>
+                  </TableRow>
+                ))
+              )}
+            </TableBody>
+          </Table>
+        </CardContent>
+      </Card>
+
       <Card>
         <CardHeader>
           <CardTitle>Recent signals</CardTitle>

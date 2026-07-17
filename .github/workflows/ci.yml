@@ -51,8 +51,16 @@ jobs:
       - name: Licence gate
         run: pnpm licences
 
-      - name: Generate SBOM
-        run: pnpm sbom
+      # The SBOM is committed, because it is a handover artefact the client is owed — not a
+      # build output that exists only in a CI run nobody keeps. This step regenerates it and
+      # fails if it differs, so a dependency change cannot land without the SBOM following it.
+      - name: SBOM is up to date
+        run: |
+          pnpm sbom
+          git diff --exit-code sbom.json || {
+            echo "::error::sbom.json is stale. Run 'pnpm sbom' and commit the result."
+            exit 1
+          }
 
       - name: Upload SBOM
         uses: actions/upload-artifact@v4

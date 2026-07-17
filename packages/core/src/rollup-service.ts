@@ -176,6 +176,97 @@ export interface SiteUtilisation {
   utilisationPct: number | null
 }
 
+/** One cell of the heatmap: a site's utilisation on a local day. */
+export interface HeatmapCell {
+  day: string
+  /** Null means NOT MEASURED — never 0. The UI must render the difference (ADR-0015). */
+  utilisationPct: number | null
+  measured: number
+}
+
+export interface HeatmapRow {
+  siteId: string
+  siteCode: string
+  siteName: string
+  cells: HeatmapCell[]
+}
+
+/**
+ * Utilisation per site per day, for the estate heatmap (32 sites in production).
+ *
+ * Scoped like every other read path (ADR-0017). Days with no snapshot are `null`, not 0 — a
+ * gap in the grid is the honest rendering of "we were not watching", and this is the view
+ * most likely to be screenshotted into a disposal decision.
+ */
+export async function utilisationHeatmap(
+  prisma: PrismaClient,
+  options: { days?: number; scope?: SiteScope; now?: Date; timeZone?: string } = {},
+): Promise<HeatmapRow[]> {
+  const days = Math.min(Math.max(options.days ?? 14, 1), 90)
+  const scope = options.scope ?? { kind: 'all' }
+  const now = options.now ?? new Date()
+  const timeZone = options.timeZone ?? DEFAULT_TIMEZONE
+
+  if (scope.kind === 'none') return []
+
+  // The window: `days` local days ending with yesterday (today is not rolled up yet).
+  const dayKeys: string[] = []
+  for (let i = days; i >= 1; i--) {
+    dayKeys.push(dayKey(new Date(now.getTime() - i * 24 * 60 * 60_000), timeZone))
+  }
+  const since = localDayBounds(new Date(now.getTime() - days * 24 * 60 * 60_000), timeZone).start
+
+  const [sites, snapshots] = await Promise.all([
+    prisma.site.findMany({
+      ...(scope.kind === 'site' ? { where: { id: scope.siteId } } : {}),
+      orderBy: { code: 'asc' },
+    }),
+    prisma.utilisationSnapshot.findMany({
+      where: {
+        periodStart: { gte: since },
+        ...(scope.kind === 'site' ? { asset: { siteId: scope.siteId } } : {}),
+      },
+      select: { assetId: true, periodStart: true, utilisationPct: true, asset: { select: { siteId: true } } },
+    }),
+  ])
+
+  // site -> day -> running mean
+  const grid = new Map<string, Map<string, { total: number; count: number; assets: Set<string> }>>()
+
+  for (const snapshot of snapshots) {
+    const key = dayKey(snapshot.periodStart, timeZone)
+    const bySite = grid.get(snapshot.asset.siteId) ?? new Map()
+    const cell = bySite.get(key) ?? { total: 0, count: 0, assets: new Set<string>() }
+
+    cell.total += snapshot.utilisationPct
+    cell.count++
+    cell.assets.add(snapshot.assetId)
+
+    bySite.set(key, cell)
+    grid.set(snapshot.asset.siteId, bySite)
+  }
+
+  return sites.map((site) => ({
+    siteId: site.id,
+    siteCode: site.code,
+    siteName: site.name,
+    cells: dayKeys.map((day) => {
+      const cell = grid.get(site.id)?.get(day)
+      return {
+        day,
+        // Null, not 0: no snapshot means nobody was watching, which is a different claim.
+        utilisationPct: cell && cell.count > 0 ? Math.round((cell.total / cell.count) * 10) / 10 : null,
+        measured: cell?.assets.size ?? 0,
+      }
+    }),
+  }))
+}
+
+/** The local calendar date of an instant, as `YYYY-MM-DD`. */
+function dayKey(at: Date, timeZone: string): string {
+  return new Intl.DateTimeFormat('en-CA', { timeZone, year: 'numeric', month: '2-digit', day: '2-digit' }).format(at)
+}
+
 /**
  * Mean utilisation per site over a window, within the caller's scope.
  *
