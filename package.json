@@ -14,7 +14,7 @@
     "lint": "eslint .",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "typecheck": "tsc --build && tsc -p app --noEmit",
+    "typecheck": "tsc --build --force && tsc -p app --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
     "e2e": "playwright test",

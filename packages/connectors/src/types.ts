@@ -11,6 +11,17 @@ import type { RawSignal, SignalInput, SignalSource } from '@oat/core'
  */
 export interface Connector {
   readonly id: SignalSource
+  /**
+   * How often this connector reports, in minutes.
+   *
+   * Drives the per-source coverage gap in the utilisation rollup (ADR-0018): a silence longer
+   * than a few poll intervals is an outage, and an outage is UNOBSERVED time, not idleness.
+   * One global gap cannot serve both a 5-minute MDM and an hourly SNMP sweep — the first
+   * would hide real outages, the second would read a normal quiet period as one.
+   *
+   * Declared by the adapter because only the adapter knows its own cadence.
+   */
+  readonly pollIntervalMinutes: number
   /** Pull from the source. For connectors we poll on a schedule. */
   poll?(): Promise<RawSignal[]>
   /** Accept a pushed payload (webhook, scan submission). */

@@ -1,6 +1,6 @@
 import { requirePermission } from '@/lib/page-auth'
 import { scopeToSite } from '@oat/auth'
-import { getAsset } from '@oat/core'
+import { getAsset, resolveIdlePolicy, type IdleConfigOverride } from '@oat/core'
 import { prisma } from '@oat/db'
 import Link from 'next/link'
 import { notFound } from 'next/navigation'
@@ -26,6 +26,14 @@ export default async function AssetDetailPage({ params }: { params: Promise<{ id
   const now = new Date()
   const idleFor = asset.status === 'IDLE' ? minutesSince(asset.idleSince, now) : null
   const attributes = (asset.attributes ?? {}) as Record<string, unknown>
+
+  // Which level of the chain actually applied (ADR-0014/0019). Shown because a sub-type
+  // typo's only symptom is a silent fall back to the class default — the number looks
+  // perfectly reasonable, and nobody can tell it is not the one they configured.
+  const overrides = (await prisma.idleConfig.findMany({
+    select: { scope: true, key: true, thresholdMinutes: true, alertAfterMinutes: true },
+  })) as IdleConfigOverride[]
+  const policy = resolveIdlePolicy(asset, overrides)
 
   return (
     <div className="space-y-8">
@@ -57,7 +65,52 @@ export default async function AssetDetailPage({ params }: { params: Promise<{ id
               <Field label="Last active" value={formatDateTime(asset.lastActiveAt)} />
               <Field label="Location" value={asset.location ?? '—'} testId="location" />
               <Field label="Custodian" value={asset.custodianId ?? '—'} />
-              <Field label="Class" value={formatAssetClass(asset.class)} />
+              <Field
+                label="Class"
+                value={
+                  <>
+                    {formatAssetClass(asset.class)}
+                    {asset.subType ? (
+                      <span data-testid="sub-type" className="text-muted-foreground">
+                        {' · '}
+                        {asset.subType}
+                      </span>
+                    ) : null}
+                  </>
+                }
+              />
+              <Field
+                label="Idle after"
+                testId="idle-threshold"
+                value={
+                  <>
+                    <span className="tabular-nums">{formatDuration(policy.thresholdMinutes)}</span>{' '}
+                    <span
+                      data-testid="idle-threshold-source"
+                      className={`text-xs ${
+                        policy.thresholdSource === 'default'
+                          ? 'italic text-amber-700 dark:text-amber-400'
+                          : 'text-muted-foreground'
+                      }`}
+                    >
+                      {POLICY_SOURCE_LABEL[policy.thresholdSource]}
+                    </span>
+                  </>
+                }
+              />
+              <Field
+                label="Activity comes from"
+                value={
+                  <span className="text-muted-foreground">
+                    {/* Why an instrument shows no utilisation: nothing feeds it yet. */}
+                    {policy.activitySources === '*'
+                      ? 'any connector'
+                      : policy.activitySources.length === 0
+                        ? 'scan only'
+                        : policy.activitySources.join(', ')}
+                  </span>
+                }
+              />
             </dl>
           </CardContent>
         </Card>
@@ -131,6 +184,19 @@ export default async function AssetDetailPage({ params }: { params: Promise<{ id
       </Card>
     </div>
   )
+}
+
+/**
+ * Where a resolved threshold came from.
+ *
+ * "from the class default" when the user expected "from this sub-type" is the ONLY visible
+ * symptom of a mistyped sub-type — the number itself looks entirely reasonable.
+ */
+const POLICY_SOURCE_LABEL: Record<string, string> = {
+  asset: 'set on this asset',
+  'sub-type': `set for this sub-type`,
+  class: 'set for this class',
+  default: 'provisional default',
 }
 
 function str(value: unknown): string {

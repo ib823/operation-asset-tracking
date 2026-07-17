@@ -100,6 +100,32 @@ describe('requirePermission', () => {
   })
 })
 
+/** ADR-0017: seeing the whole estate is an explicit grant, visible in the matrix. */
+describe('site:read:all', () => {
+  it('is held by HQ and management roles', () => {
+    for (const role of ['FINANCE', 'PURCHASING', 'HQ_LAB_MANAGER', 'IT', 'DEVELOPER'] as Role[]) {
+      expect(can(principal([role]), 'site:read:all'), role).toBe(true)
+    }
+  })
+
+  it('is NOT held by Branch', () => {
+    // The whole point: a branch user learns nothing about the shape of the rest of the
+    // estate — not even its site count.
+    expect(can(principal(['BRANCH'], 'site-1'), 'site:read:all')).toBe(false)
+  })
+
+  it('drives scopeToSite, so the matrix and the scope cannot drift apart', () => {
+    // The bug this prevents: a hardcoded role list inside scopeToSite is a permission
+    // decision invisible to anyone reading MATRIX.
+    const withGrant = principal(['BRANCH'], 'site-1')
+    expect(scopeToSite(withGrant)).toEqual({ kind: 'site', siteId: 'site-1' })
+
+    const crossSite = principal(['BRANCH', 'HQ_LAB_MANAGER'], 'site-1')
+    expect(can(crossSite, 'site:read:all')).toBe(true)
+    expect(scopeToSite(crossSite)).toEqual({ kind: 'all' })
+  })
+})
+
 describe('scopeToSite', () => {
   it('confines a Branch user to their own site', () => {
     expect(scopeToSite(principal(['BRANCH'], 'site-1'))).toEqual({ kind: 'site', siteId: 'site-1' })

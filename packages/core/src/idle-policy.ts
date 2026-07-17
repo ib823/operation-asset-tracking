@@ -94,8 +94,43 @@ export interface AssetContext {
   subType?: string | null
 }
 
+/**
+ * Canonical form of a sub-type (ADR-0019).
+ *
+ * Free text is what makes sub-types usable without a migration (ADR-0014); it is also what
+ * makes " Analyser" and "analyser" three different sub-types by accident. Normalise on write
+ * and on lookup, so a stray space or a capital letter cannot silently create a second
+ * sub-type that no config matches.
+ *
+ * Collapses internal whitespace, trims, and Title-cases the first letter of each word — a
+ * canonical display form rather than a lowercased one, because this is shown to humans.
+ */
+export function normaliseSubType(raw: string | null | undefined): string | null {
+  if (typeof raw !== 'string') return null
+
+  const collapsed = raw.trim().replace(/\s+/g, ' ')
+  if (collapsed.length === 0) return null
+
+  return collapsed
+    .split(' ')
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
+    .join(' ')
+}
+
+/**
+ * The config key for a sub-type.
+ *
+ * Case-folded, so lookup cannot miss on capitalisation even if a row was written before
+ * normalisation existed.
+ */
 export function subTypeKey(assetClass: AssetClass, subType: string): string {
-  return `${assetClass}:${subType}`
+  const canonical = normaliseSubType(subType) ?? subType
+  return `${assetClass}:${canonical}`
+}
+
+/** Compare two sub-type keys ignoring case, so an old row still matches a new asset. */
+function keyMatches(a: string, b: string): boolean {
+  return a.toLowerCase() === b.toLowerCase()
 }
 
 function isPositive(value: unknown): value is number {
@@ -126,7 +161,7 @@ export function resolveIdlePolicy(
     {
       source: 'sub-type',
       override: asset.subType
-        ? overrides.find((o) => o.scope === 'SUB_TYPE' && o.key === subTypeKey(asset.class, asset.subType!))
+        ? overrides.find((o) => o.scope === 'SUB_TYPE' && keyMatches(o.key, subTypeKey(asset.class, asset.subType!)))
         : undefined,
     },
     { source: 'class', override: overrides.find((o) => o.scope === 'CLASS' && o.key === asset.class) },

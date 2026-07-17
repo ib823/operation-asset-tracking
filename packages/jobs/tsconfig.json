@@ -5,15 +5,5 @@
     "rootDir": "./src"
   },
   "include": ["src/**/*.ts"],
-  "references": [
-    {
-      "path": "../db"
-    },
-    {
-      "path": "../auth"
-    },
-    {
-      "path": "../core"
-    }
-  ]
+  "references": [{ "path": "../db" }, { "path": "../core" }, { "path": "../connectors" }]
 }

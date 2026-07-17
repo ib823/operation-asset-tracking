@@ -1,5 +1,6 @@
 import { requirePermission } from '@/lib/page-auth'
-import { siteStatusBreakdown, siteUtilisation } from '@oat/core'
+import { scopeToSite } from '@oat/auth'
+import { openAlertCount, siteStatusBreakdown, siteUtilisation } from '@oat/core'
 import { prisma } from '@oat/db'
 import Link from 'next/link'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
@@ -9,12 +10,17 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 export const dynamic = 'force-dynamic'
 
 export default async function DashboardPage() {
-  await requirePermission('asset:read', '/')
+  const principal = await requirePermission('asset:read', '/')
+
+  // The dashboard obeys the same scope as the register. Aggregates are not exempt from
+  // access control just because they are summaries: a count is a fact about the rows
+  // (ADR-0017). Seeing every site requires `site:read:all`, which BRANCH does not have.
+  const scope = scopeToSite(principal)
 
   const [sites, utilisation, openAlerts] = await Promise.all([
-    siteStatusBreakdown(prisma),
-    siteUtilisation(prisma),
-    prisma.idleAlert.count({ where: { status: 'OPEN' } }),
+    siteStatusBreakdown(prisma, scope),
+    siteUtilisation(prisma, { scope }),
+    openAlertCount(prisma, scope),
   ])
   const utilisationBySite = new Map(utilisation.map((u) => [u.siteId, u]))
 
@@ -33,6 +39,9 @@ export default async function DashboardPage() {
       <div>
         <h1 className="text-2xl font-semibold tracking-tight">Dashboard</h1>
         <p className="mt-1 text-sm text-muted-foreground">
+          {/* The count of sites the user is AUTHORISED for, not the global one. Telling a
+              branch user the estate has 3 sites is a small disclosure, but it is the kind
+              that reveals the shape of an estate they are not cleared for. */}
           Operational status across {sites.length} {sites.length === 1 ? 'site' : 'sites'}.
         </p>
       </div>

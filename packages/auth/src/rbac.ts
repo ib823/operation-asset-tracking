@@ -15,6 +15,15 @@ import type { Role } from '@oat/db'
 export type Permission =
   // Register
   | 'asset:read'
+  /**
+   * See the WHOLE estate — every site's assets, aggregates and utilisation.
+   *
+   * Explicit, and in this matrix, because "who can see everything?" must be answerable by
+   * reading the matrix. It used to be a hardcoded role list inside `scopeToSite`, invisible
+   * here — which is how the dashboard ended up showing a branch user every site's counts
+   * (ADR-0017).
+   */
+  | 'site:read:all'
   | 'asset:create'
   | 'asset:update'
   | 'asset:retire'
@@ -49,6 +58,7 @@ const MATRIX: Record<Role, readonly Permission[]> = {
    */
   FINANCE: [
     'asset:read',
+    'site:read:all',
     'utilisation:read',
     'sap:writeback:propose',
     'sap:writeback:approve',
@@ -58,12 +68,14 @@ const MATRIX: Record<Role, readonly Permission[]> = {
   ],
 
   /** Purchasing needs acquisition and vendor detail. No approval rights, no operations. */
-  PURCHASING: ['asset:read', 'asset:create', 'asset:update'],
+  PURCHASING: ['asset:read', 'site:read:all', 'asset:create', 'asset:update'],
 
   /**
    * Branch staff work their own site: scan, move, assign, flag for repair. Scoped to
    * `user.siteId` — see `scopeToSite`. No cross-site visibility, no SAP.
    */
+  // Deliberately NO `site:read:all`: a branch user sees their own site and learns nothing
+  // about the shape of the rest of the estate — not even its site count (ADR-0017).
   BRANCH: ['asset:read', 'asset:update', 'scan:submit', 'asset:assign'],
 
   /**
@@ -72,6 +84,7 @@ const MATRIX: Record<Role, readonly Permission[]> = {
    */
   HQ_LAB_MANAGER: [
     'asset:read',
+    'site:read:all',
     'asset:update',
     'scan:submit',
     'asset:assign',
@@ -83,11 +96,12 @@ const MATRIX: Record<Role, readonly Permission[]> = {
   ],
 
   /** IT runs the integrations, not the asset decisions. */
-  IT: ['asset:read', 'utilisation:read', 'connector:manage', 'sap:sync', 'user:manage', 'audit:read'],
+  IT: ['asset:read', 'site:read:all', 'utilisation:read', 'connector:manage', 'sap:sync', 'user:manage', 'audit:read'],
 
   /** Developer: everything, including the reconciliation queue. */
   DEVELOPER: [
     'asset:read',
+    'site:read:all',
     'asset:create',
     'asset:update',
     'asset:retire',
@@ -158,10 +172,11 @@ export type SiteScope = { kind: 'all' } | { kind: 'site'; siteId: string } | { k
  * cannot.
  */
 export function scopeToSite(principal: Principal): SiteScope {
-  // Any cross-site role lifts the restriction, so a user who is both BRANCH and
-  // HQ_LAB_MANAGER is not accidentally blinded to the other 31 sites.
-  const crossSite: Role[] = ['FINANCE', 'HQ_LAB_MANAGER', 'IT', 'DEVELOPER', 'PURCHASING']
-  if (principal.roles.some((role) => crossSite.includes(role))) return { kind: 'all' }
+  // Derived from the permission, not a role list hidden in here. A hardcoded list is a
+  // permission decision invisible to anyone reading MATRIX, and it silently drifts from it
+  // (ADR-0017). Holding it via any role lifts the restriction, so a user who is both BRANCH
+  // and HQ_LAB_MANAGER is not accidentally blinded to the other 31 sites.
+  if (can(principal, 'site:read:all')) return { kind: 'all' }
 
   if (principal.siteId) return { kind: 'site', siteId: principal.siteId }
 

@@ -3,7 +3,7 @@ import { prisma } from '@oat/db'
 import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import { requireServiceToken } from '@/lib/api-auth'
-import { enabledActivitySources } from '@/lib/connectors'
+import { connectorCoverageGaps, enabledActivitySources } from '@/lib/connectors'
 
 export const dynamic = 'force-dynamic'
 
@@ -38,6 +38,7 @@ export async function POST(request: Request): Promise<NextResponse> {
   const summary = await rollUpDay(prisma, {
     ...(parsed.data.day ? { day: parsed.data.day } : {}),
     enabledSources: enabledActivitySources(),
+    coverageGaps: connectorCoverageGaps(),
   })
 
   return NextResponse.json(summary)

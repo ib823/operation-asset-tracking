@@ -1,5 +1,5 @@
 import { isActivitySource, type ClassIdlePolicy } from './idle-policy'
-import { parseSignalValue, type SignalInput, type SignalType } from './signals'
+import { parseSignalValue, type SignalInput, type SignalSource, type SignalType } from './signals'
 
 /**
  * The utilisation rollup (ADR-0015).
@@ -17,13 +17,20 @@ import { parseSignalValue, type SignalInput, type SignalType } from './signals'
 const MINUTE_MS = 60_000
 
 /**
- * A silence longer than this is UNOBSERVED, not idle.
+ * Fallback coverage gap, used when the caller supplies none.
  *
- * If a connector goes quiet for six hours we did not learn six hours of idleness; we learned
- * nothing. Too high and outages read as coverage; too low and a slow poll cycle reads as an
- * outage. Revisit per connector once real poll intervals are known.
+ * A silence longer than this is UNOBSERVED, not idle: if a connector goes quiet for six
+ * hours we did not learn six hours of idleness, we learned nothing.
+ *
+ * This single number was assumption A14 and is now only a default. The gap is PER SOURCE
+ * (ADR-0018), derived from each adapter's real poll interval — one constant cannot serve
+ * both a 5-minute MDM and an hourly SNMP sweep: it either hides the MDM's outages or reads
+ * SNMP's normal quiet as one.
  */
-export const MAX_COVERAGE_GAP_MINUTES = 60
+export const DEFAULT_COVERAGE_GAP_MINUTES = 60
+
+/** Per-source coverage gaps, in minutes. Sources absent fall back to the default. */
+export type CoverageGaps = Partial<Record<SignalSource, number>>
 
 export interface Interval {
   start: Date
@@ -46,6 +53,11 @@ export interface RollupInput {
   /** Signals overlapping the period. Any order. */
   signals: readonly SignalInput[]
   period: Interval
+  /**
+   * How long a silence from each source still counts as coverage. Supplied by the caller,
+   * which knows which adapters are deployed and at what cadence (ADR-0018).
+   */
+  coverageGaps?: CoverageGaps
 }
 
 /** Merge overlapping/adjacent intervals. Union, never sum — two activity signals five
@@ -134,19 +146,34 @@ function activityAt(type: SignalType, value: unknown, observedAt: Date): Date | 
  * 0% row: a zero indistinguishable from ignorance is worse than a gap, because a gap prompts
  * the question and a zero answers it wrongly (ADR-0015).
  */
-export function rollUp({ policy, signals, period }: RollupInput): UtilisationResult | null {
+export function rollUp({ policy, signals, period, coverageGaps = {} }: RollupInput): UtilisationResult | null {
   const ordered = [...signals].sort((a, b) => a.observedAt.getTime() - b.observedAt.getTime())
 
   // COVERAGE comes from presence: ANY signal proves we were watching, including a heartbeat.
   // That is what makes a device heartbeating all night correctly observed AND correctly idle
   // — the case the naive formula gets wrong in reverse.
+  //
+  // Computed PER SOURCE (ADR-0018): consecutive signals from the SAME source, within that
+  // source's own gap. Mixing sources would let a 5-minute MDM poll silently vouch for an
+  // hourly SNMP sweep's silence — two devices' evidence stitched into coverage neither
+  // provided. The union across sources is then correct: any source watching is coverage.
+  const bySource = new Map<SignalSource, SignalInput[]>()
+  for (const signal of ordered) {
+    const list = bySource.get(signal.source) ?? []
+    list.push(signal)
+    bySource.set(signal.source, list)
+  }
+
   const coverage: Interval[] = []
-  for (let i = 0; i < ordered.length - 1; i++) {
-    const from = ordered[i]!.observedAt
-    const to = ordered[i + 1]!.observedAt
-    const gapMinutes = (to.getTime() - from.getTime()) / MINUTE_MS
-    // A longer silence is unobserved, not idle.
-    if (gapMinutes <= MAX_COVERAGE_GAP_MINUTES) coverage.push({ start: from, end: to })
+  for (const [source, sourceSignals] of bySource) {
+    const gap = coverageGaps[source] ?? DEFAULT_COVERAGE_GAP_MINUTES
+
+    for (let i = 0; i < sourceSignals.length - 1; i++) {
+      const from = sourceSignals[i]!.observedAt
+      const to = sourceSignals[i + 1]!.observedAt
+      // A longer silence is unobserved, not idle.
+      if ((to.getTime() - from.getTime()) / MINUTE_MS <= gap) coverage.push({ start: from, end: to })
+    }
   }
 
   const observed = clamp(union(coverage), period)

@@ -63,6 +63,18 @@ jobs:
   test:
     name: Unit tests
     runs-on: ubuntu-latest
+
+    services:
+      # A REAL SNMP agent for the integration tests. They skip themselves when it is absent,
+      # so a contributor without Docker still gets a green local run — but CI gets the real
+      # coverage, and SNMP's protocol behaviour is not something a mock can teach us
+      # (net-snmp defaults to v1, where a missing OID fails the whole request; that cost us a
+      # working adapter until a real agent showed it).
+      snmpd:
+        image: polinux/snmpd
+        ports:
+          - 1161:161/udp
+
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -74,6 +86,9 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm --filter @oat/db exec prisma generate
       - run: pnpm test
+        env:
+          OAT_TEST_SNMP_HOST: 127.0.0.1
+          OAT_TEST_SNMP_PORT: 1161
 
   e2e:
     name: E2E · build

@@ -48,7 +48,7 @@ impossible by construction. See `docs/decisions/0004-sap-boundary-typed-contract
 | DB / ORM  | PostgreSQL / Prisma                                        |
 | UI        | Tailwind CSS + shadcn/ui                                   |
 | Auth      | Auth.js v5 (beta, pinned) + RBAC; OIDC/SAML seam (SAP IAS) |
-| Jobs      | pg-boss (chosen, ADR-0005; wired in Phase 3)               |
+| Jobs      | pg-boss, in its own worker process (ADR-0005, ADR-0020)    |
 | API       | REST, documented with OpenAPI                              |
 | Packaging | Docker + docker-compose, `.devcontainer`                   |
 | Tests     | Vitest (unit/integration) + Playwright (e2e)               |
@@ -62,6 +62,7 @@ packages/core        domain model + services (registry, utilisation/idle engine)
 packages/sap         SAP integration: master sync (in), event write-back (out)
 packages/connectors  pluggable signal adapters
 packages/db          Prisma schema + migrations
+packages/jobs        the SCHEDULER — its own process, not inside Next (ADR-0020)
 packages/seed        seed/reset tooling (separate: it composes db + auth, which would
                      otherwise be a project-reference cycle)
 packages/auth        RBAC + audit (pure policy) · `@oat/auth/server` = credentials (Node only)
@@ -82,7 +83,12 @@ interface Connector {
 }
 ```
 
-Priority order: **1. scan** (barcode/QR — the fallback floor, build first) · 2. soti (MDM) · 3. osquery/Fleet · 4. snmp · 5. lis (HL7/ASTM).
+Priority order: **1. scan** (barcode/QR — the fallback floor) · 2. soti (MDM) · 3. osquery/Fleet · 4. snmp · 5. lis (HL7/ASTM).
+
+Each adapter declares its `pollIntervalMinutes`; the utilisation coverage gap is derived from
+it, per source (ADR-0018). All five are built except **lis**, which is a documented interface
+stub pending client dependency C4 — and which is the only thing that can ever give an
+instrument a utilisation figure.
 
 **Graceful degradation is a hard requirement:** disable every connector and the register
 must remain fully usable via scan/manual entry.
@@ -115,7 +121,9 @@ Confirmed with the client in Phase 1. Each is enforced in code and covered by te
   (IN_USE↔IDLE) a **scan wins for a 12h TTL**, then telemetry resumes automatically.
   `UNDER_REPAIR`/`RETIRED` are **sticky — human-cleared only, no TTL**. Both events always
   persist; sustained conflict raises an alert (ADR-0010).
-- **Access control lives in the page/route, never in middleware alone** (ADR-0012).
+- **Access control lives in the page/route, never in middleware alone** (ADR-0012), and
+  applies to **aggregates as well as rows** — a count is a fact about the rows. Seeing every
+  site needs the explicit `site:read:all` grant, which BRANCH does not have (ADR-0017).
 - **Sign-out revokes the token** (bumps `tokenVersion`); clearing the cookie is a courtesy.
   Deleting the cookie is not reliable — a concurrent rolling-session refresh re-writes it,
   which left sign-out leaving the session LIVE about half the time (ADR-0016).

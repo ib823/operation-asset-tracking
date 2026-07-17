@@ -3,6 +3,7 @@ import {
   DEFAULT_IDLE_POLICY,
   DEFAULT_SCAN_TTL_MINUTES,
   isRollupEligible,
+  normaliseSubType,
   resolveIdlePolicy,
   resolveScanTtlMinutes,
   subTypeKey,
@@ -153,5 +154,44 @@ describe('isRollupEligible', () => {
 
   it('never rolls up a class with no automated activity source', () => {
     expect(isRollupEligible(DEFAULT_IDLE_POLICY.REUSABLE_COMPONENT, ['scan', 'soti', 'lis'])).toBe(false)
+  })
+})
+
+/** ADR-0019: sub-types are normalised on write and matched case-insensitively. */
+describe('normaliseSubType', () => {
+  it('trims and collapses whitespace', () => {
+    expect(normaliseSubType('  Analyser  ')).toBe('Analyser')
+    expect(normaliseSubType('Blood   Gas  Analyser')).toBe('Blood Gas Analyser')
+  })
+
+  it('case-folds to a canonical display form', () => {
+    // Free text is what makes sub-types usable without a migration; it is also what makes
+    // "analyser", "Analyser" and "ANALYSER" three sub-types by accident.
+    for (const input of ['analyser', 'ANALYSER', 'aNaLySeR']) {
+      expect(normaliseSubType(input), input).toBe('Analyser')
+    }
+  })
+
+  it('treats blank and absent as no sub-type', () => {
+    expect(normaliseSubType('   ')).toBeNull()
+    expect(normaliseSubType('')).toBeNull()
+    expect(normaliseSubType(null)).toBeNull()
+    expect(normaliseSubType(undefined)).toBeNull()
+  })
+
+  it('builds a stable key regardless of how the sub-type was typed', () => {
+    expect(subTypeKey('LAB_INSTRUMENT', ' analyser ')).toBe('LAB_INSTRUMENT:Analyser')
+    expect(subTypeKey('LAB_INSTRUMENT', 'Analyser')).toBe('LAB_INSTRUMENT:Analyser')
+  })
+
+  it('resolves an override whatever the case of the stored key', () => {
+    // An override written before normalisation existed must still match.
+    const overrides: IdleConfigOverride[] = [
+      { scope: 'SUB_TYPE', key: 'LAB_INSTRUMENT:analyser', thresholdMinutes: 42 },
+    ]
+    const asset = { id: 'a', class: 'LAB_INSTRUMENT' as const, subType: 'Analyser' }
+
+    expect(resolveIdlePolicy(asset, overrides).thresholdMinutes).toBe(42)
+    expect(resolveIdlePolicy(asset, overrides).thresholdSource).toBe('sub-type')
   })
 })

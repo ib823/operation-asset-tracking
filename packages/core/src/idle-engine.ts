@@ -176,8 +176,19 @@ export function project({ current, signals, now, policy }: ProjectInput): Projec
   // as the sweep passes — still knows when the asset was last used.
   let lastActiveAt = current.lastActiveAt
 
-  let adminAssertion: { value: AssetStatus; at: Date } | null = null
-  let scanAssertion: { value: AssetStatus; at: Date } | null =
+  /**
+   * The most recent thing a HUMAN said, administrative or contested — one assertion, not two.
+   *
+   * Tracking them separately was a real bug: an asset scanned UNDER_REPAIR in January and
+   * scanned IN_USE today would re-project to UNDER_REPAIR forever, because the admin
+   * assertion was applied unconditionally and the newer scan never got a look in. Operators
+   * could put an asset into repair and never take it out again.
+   *
+   * Both signals are in the append-only log (ADR-0006), so every re-projection replayed the
+   * old one. The unit test missed it by passing a single signal in the batch — which is not
+   * what `reprojectAsset` does, and not what history looks like.
+   */
+  let humanAssertion: { value: AssetStatus; at: Date } | null =
     current.scanAssertedStatus && current.scanAssertedAt
       ? { value: current.scanAssertedStatus, at: current.scanAssertedAt }
       : null
@@ -206,25 +217,21 @@ export function project({ current, signals, now, policy }: ProjectInput): Projec
     // contested one. Only a human at the asset can.
     if (evidence.status.source !== 'scan') continue
 
-    if (isAdministrative(evidence.status.value)) {
-      if (!adminAssertion || evidence.status.at >= adminAssertion.at) {
-        adminAssertion = { value: evidence.status.value, at: evidence.status.at }
-      }
-    } else if (isContested(evidence.status.value)) {
-      if (!scanAssertion || evidence.status.at >= scanAssertion.at) {
-        scanAssertion = { value: evidence.status.value, at: evidence.status.at }
-      }
+    // Latest human word wins, whichever KIND it is. "It is under repair" and "it is back in
+    // use" are the same conversation, and the later statement is the true one.
+    if (!humanAssertion || evidence.status.at >= humanAssertion.at) {
+      humanAssertion = { value: evidence.status.value, at: evidence.status.at }
     }
   }
 
   const base = { lastSeenAt, lastActiveAt }
 
-  // A human moving the asset into an administrative status wins outright.
-  if (adminAssertion && isAdministrative(adminAssertion.value)) {
+  // A human's LATEST word being an administrative status wins outright, and is sticky.
+  if (humanAssertion && isAdministrative(humanAssertion.value)) {
     return {
       projection: {
         ...base,
-        status: adminAssertion.value,
+        status: humanAssertion.value,
         idleSince: null,
         scanAssertedStatus: null,
         scanAssertedAt: null,
@@ -233,10 +240,9 @@ export function project({ current, signals, now, policy }: ProjectInput): Projec
     }
   }
 
-  // Sticky: an asset already under repair or retired stays there until a human clears it.
+  // Sticky: an asset already under repair or retired stays there until a HUMAN clears it.
   // Telemetry keeps updating lastSeenAt but cannot move it.
-  const clearedByHuman = adminAssertion !== null || scanAssertion !== null
-  if (isAdministrative(current.status) && !clearedByHuman) {
+  if (isAdministrative(current.status) && !humanAssertion) {
     return {
       projection: {
         ...base,
@@ -252,6 +258,9 @@ export function project({ current, signals, now, policy }: ProjectInput): Projec
   const telemetry = telemetryVerdict(lastActiveAt, now, thresholdMinutes)
 
   // A live scan assertion outranks telemetry on IN_USE/IDLE, until its TTL expires.
+  // `humanAssertion` is necessarily contested here — the administrative case returned above.
+  const scanAssertion = humanAssertion && isContested(humanAssertion.value) ? humanAssertion : null
+
   if (scanAssertion) {
     const ageMinutes = (now.getTime() - scanAssertion.at.getTime()) / MINUTE_MS
 

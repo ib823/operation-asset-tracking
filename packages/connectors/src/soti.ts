@@ -52,6 +52,15 @@ interface TokenState {
 export class SotiConnector implements Connector {
   readonly id = 'soti' as const
 
+  /**
+   * SOTI MobiControl checks devices in every ~5 minutes by default.
+   *
+   * Drives the coverage gap (ADR-0018): three missed check-ins is an outage, and an outage is
+   * unobserved time rather than idleness. Confirm against the real tenant (C3) — this is our
+   * estimate of the default, not a measured fact.
+   */
+  readonly pollIntervalMinutes = 5
+
   private readonly config: SotiConfig
   private readonly fetchImpl: typeof fetch
   private token: TokenState | null = null
