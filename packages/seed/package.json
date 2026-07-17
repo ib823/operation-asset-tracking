@@ -10,7 +10,8 @@
   },
   "dependencies": {
     "@oat/auth": "workspace:*",
-    "@oat/db": "workspace:*"
+    "@oat/db": "workspace:*",
+    "@oat/core": "workspace:*"
   },
   "devDependencies": {
     "tsx": "^4.19.2"

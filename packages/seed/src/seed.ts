@@ -1,4 +1,5 @@
 import { hashPassword } from '@oat/auth/server'
+import { normaliseSubType } from '@oat/core'
 import { PrismaClient, type AssetClass, type Role } from '@oat/db'
 
 /**
@@ -157,13 +158,13 @@ async function main(): Promise<void> {
         tag: asset.tag,
         name: asset.name,
         class: asset.class,
-        subType: asset.subType ?? null,
+        subType: normaliseSubType(asset.subType),
         siteId,
         location: asset.location,
         status: 'IN_USE',
         attributes: { serial: asset.serial ?? null, manufacturer: asset.manufacturer ?? null },
       },
-      update: { name: asset.name, siteId, location: asset.location, subType: asset.subType ?? null },
+      update: { name: asset.name, siteId, location: asset.location, subType: normaliseSubType(asset.subType) },
     })
   }
 

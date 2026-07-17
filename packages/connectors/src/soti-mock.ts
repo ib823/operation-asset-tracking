@@ -28,6 +28,8 @@ export type SotiDeviceReport = z.infer<typeof SotiDeviceReport>
 
 export class MockSotiConnector implements Connector {
   readonly id = 'soti' as const
+  /** Matches the real adapter, so a demo's coverage arithmetic behaves like production. */
+  readonly pollIntervalMinutes = 5
   private readonly reports: SotiDeviceReport[]
 
   constructor(reports: SotiDeviceReport[] = []) {

@@ -31,6 +31,15 @@ export class ScanConnector implements Connector {
   readonly id = 'scan' as const
 
   /**
+   * Zero: a human with a barcode reader has no cadence.
+   *
+   * Scans are pushed, not polled, and two scans an hour apart do not mean we watched the
+   * intervening hour. The coverage rule gives a source with no interval a small fixed window
+   * rather than a multiple of nothing (ADR-0018).
+   */
+  readonly pollIntervalMinutes = 0
+
+  /**
    * Accept a scan submission.
    *
    * One scan can carry several assertions (here, and moved, and under repair), and each is

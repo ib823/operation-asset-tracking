@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { DEFAULT_IDLE_POLICY } from './idle-policy'
-import { localDayBounds, rollUp, MAX_COVERAGE_GAP_MINUTES } from './utilisation'
+import { localDayBounds, rollUp, DEFAULT_COVERAGE_GAP_MINUTES } from './utilisation'
 import type { SignalInput } from './signals'
 
 const DAY_START = new Date('2026-07-16T00:00:00Z')
@@ -9,6 +9,7 @@ const period = { start: DAY_START, end: new Date('2026-07-17T00:00:00Z') }
 /** IT: 30-minute threshold, activity from osquery/soti. */
 const IT = DEFAULT_IDLE_POLICY.IT
 const INSTRUMENT = DEFAULT_IDLE_POLICY.LAB_INSTRUMENT
+const PRINTER = DEFAULT_IDLE_POLICY.PRINTER
 
 function at(minutesIntoDay: number): Date {
   return new Date(DAY_START.getTime() + minutesIntoDay * 60_000)
@@ -67,10 +68,10 @@ describe('rollUp', () => {
   })
 
   it('counts a gap at exactly the cap as covered, and beyond it as not', () => {
-    const within = [heartbeat(0), heartbeat(MAX_COVERAGE_GAP_MINUTES)]
-    const beyond = [heartbeat(0), heartbeat(MAX_COVERAGE_GAP_MINUTES + 1)]
+    const within = [heartbeat(0), heartbeat(DEFAULT_COVERAGE_GAP_MINUTES)]
+    const beyond = [heartbeat(0), heartbeat(DEFAULT_COVERAGE_GAP_MINUTES + 1)]
 
-    expect(rollUp({ policy: IT, signals: within, period })!.observedMinutes).toBe(MAX_COVERAGE_GAP_MINUTES)
+    expect(rollUp({ policy: IT, signals: within, period })!.observedMinutes).toBe(DEFAULT_COVERAGE_GAP_MINUTES)
     expect(rollUp({ policy: IT, signals: beyond, period })).toBeNull()
   })
 
@@ -186,6 +187,53 @@ describe('rollUp', () => {
     expect(result.busyMinutes).toBeLessThanOrEqual(result.observedMinutes)
     expect(result.utilisationPct).toBeLessThanOrEqual(100)
     expect(result.busyMinutes + result.idleMinutes).toBe(result.observedMinutes)
+  })
+})
+
+/** ADR-0018: the coverage gap is per source, from each adapter's real poll interval. */
+describe('per-source coverage gaps', () => {
+  it('honours a tight gap for a fast-polling source', () => {
+    // SOTI polls every 5 min, so a 20-minute silence is an outage — not 20 minutes of idle.
+    const signals = [heartbeat(0, 'soti'), heartbeat(20, 'soti')]
+
+    expect(rollUp({ policy: IT, signals, period, coverageGaps: { soti: 15 } })).toBeNull()
+    // Under one global 60-minute constant this silently counted as 20 observed minutes.
+    expect(rollUp({ policy: IT, signals, period })!.observedMinutes).toBe(20)
+  })
+
+  it('honours a generous gap for a slow-polling source', () => {
+    // SNMP sweeps hourly; a 45-minute silence is normal, not an outage.
+    const signals = [heartbeat(0, 'snmp'), heartbeat(45, 'snmp')]
+
+    expect(rollUp({ policy: PRINTER, signals, period, coverageGaps: { snmp: 180 } })!.observedMinutes).toBe(45)
+  })
+
+  it("never lets one source vouch for another source's silence", () => {
+    // A SOTI poll at minute 30 must not turn the SNMP sweep's 0->60 silence into coverage:
+    // that would stitch two devices' evidence into observation neither provided.
+    const signals = [heartbeat(0, 'snmp'), heartbeat(30, 'soti'), heartbeat(60, 'snmp')]
+
+    const result = rollUp({ policy: IT, signals, period, coverageGaps: { soti: 15, snmp: 15 } })
+
+    // Each source's own gaps are 60 and 30 minutes — both beyond their 15-minute window.
+    // Nothing is covered, so nothing is claimed.
+    expect(result).toBeNull()
+  })
+
+  it('unions coverage across sources — any source watching is coverage', () => {
+    const signals = [heartbeat(0, 'soti'), heartbeat(10, 'soti'), heartbeat(60, 'snmp'), heartbeat(70, 'snmp')]
+
+    const result = rollUp({ policy: IT, signals, period, coverageGaps: { soti: 15, snmp: 15 } })!
+
+    // [0,10) from soti plus [60,70) from snmp. The 50-minute hole between them belongs to
+    // neither source and is correctly unobserved.
+    expect(result.observedMinutes).toBe(20)
+  })
+
+  it('falls back to the default for a source with no configured gap', () => {
+    const signals = [heartbeat(0, 'ocs'), heartbeat(30, 'ocs')]
+
+    expect(rollUp({ policy: IT, signals, period, coverageGaps: { soti: 15 } })!.observedMinutes).toBe(30)
   })
 })
 

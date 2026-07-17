@@ -1,8 +1,9 @@
 import type { PrismaClient } from '@oat/db'
+import type { SiteScope } from './dashboard'
 import { isRollupEligible, resolveIdlePolicy, type IdleConfigOverride } from './idle-policy'
 import { loadIdleConfig } from './registry'
 import type { SignalInput, SignalSource } from './signals'
-import { localDayBounds, rollUp, MAX_COVERAGE_GAP_MINUTES, type Interval } from './utilisation'
+import { localDayBounds, rollUp, DEFAULT_COVERAGE_GAP_MINUTES, type CoverageGaps, type Interval } from './utilisation'
 
 /**
  * Persist utilisation rollups (ADR-0015).
@@ -18,6 +19,13 @@ export interface RollupOptions {
   timeZone?: string
   /** Connectors deployed here. Decides which classes can be rolled up at all. */
   enabledSources?: readonly SignalSource[]
+  /**
+   * How long a silence from each source still counts as coverage (ADR-0018).
+   *
+   * Supplied by the caller because only the app knows which adapters are deployed and at
+   * what cadence — `core` must not import `connectors` (ADR-0002).
+   */
+  coverageGaps?: CoverageGaps
 }
 
 export interface RollupSummary {
@@ -82,8 +90,13 @@ export async function rollUpDay(prisma: PrismaClient, options: RollupOptions = {
     }
     summary.eligible++
 
-    const signals = await loadSignals(prisma, asset.id, period, policy.thresholdMinutes)
-    const result = rollUp({ policy, signals, period })
+    const signals = await loadSignals(prisma, asset.id, period, policy.thresholdMinutes, options.coverageGaps)
+    const result = rollUp({
+      policy,
+      signals,
+      period,
+      ...(options.coverageGaps ? { coverageGaps: options.coverageGaps } : {}),
+    })
 
     if (!result) {
       // No coverage: we never watched. Write nothing rather than a 0% row.
@@ -123,8 +136,14 @@ async function loadSignals(
   assetId: string,
   period: Interval,
   thresholdMinutes: number,
+  coverageGaps: CoverageGaps = {},
 ): Promise<SignalInput[]> {
-  const lookbackMs = (thresholdMinutes + MAX_COVERAGE_GAP_MINUTES) * 60_000
+  // Reach back by the widest gap in play, so the slowest source's context is still loaded.
+  const widestGap = Math.max(
+    DEFAULT_COVERAGE_GAP_MINUTES,
+    ...Object.values(coverageGaps).filter((g): g is number => typeof g === 'number'),
+  )
+  const lookbackMs = (thresholdMinutes + widestGap) * 60_000
 
   const rows = await prisma.signalEvent.findMany({
     where: {
@@ -158,22 +177,35 @@ export interface SiteUtilisation {
 }
 
 /**
- * Mean utilisation per site over a window.
+ * Mean utilisation per site over a window, within the caller's scope.
  *
  * Returns null rather than 0 for a site with no measured assets — a site with no connectors
  * deployed is unknown, not idle (ADR-0015). Rendering that as 0% would be the same lie the
  * rollup exists to prevent.
+ *
+ * Scoped like every other read path: utilisation is the figure that drives disposal
+ * decisions, so one branch reading another's is a political problem as well as a privacy
+ * one (ADR-0017).
  */
 export async function siteUtilisation(
   prisma: PrismaClient,
-  options: { since?: Date } = {},
+  options: { since?: Date; scope?: SiteScope } = {},
 ): Promise<SiteUtilisation[]> {
   const since = options.since ?? new Date(Date.now() - 7 * 24 * 60 * 60_000)
+  const scope = options.scope ?? { kind: 'all' }
+
+  if (scope.kind === 'none') return []
 
   const [sites, snapshots] = await Promise.all([
-    prisma.site.findMany({ orderBy: { code: 'asc' } }),
+    prisma.site.findMany({
+      ...(scope.kind === 'site' ? { where: { id: scope.siteId } } : {}),
+      orderBy: { code: 'asc' },
+    }),
     prisma.utilisationSnapshot.findMany({
-      where: { periodStart: { gte: since } },
+      where: {
+        periodStart: { gte: since },
+        ...(scope.kind === 'site' ? { asset: { siteId: scope.siteId } } : {}),
+      },
       select: { assetId: true, utilisationPct: true, asset: { select: { siteId: true } } },
     }),
   ])

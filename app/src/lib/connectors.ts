@@ -1,4 +1,5 @@
 import {
+  coverageGaps,
   MockSotiConnector,
   resolveConnectorFlags,
   SotiConnector,
@@ -6,7 +7,7 @@ import {
   type Connector,
   type SotiDeviceReport,
 } from '@oat/connectors'
-import type { SignalSource } from '@oat/core'
+import type { CoverageGaps, SignalSource } from '@oat/core'
 
 /**
  * Resolve the SOTI connector for this deployment.
@@ -31,6 +32,17 @@ export function sotiConnector(mockReports: SotiDeviceReport[] = []): { connector
  *
  * `scan` is excluded deliberately: it is presence and assertion, never activity evidence.
  */
+/**
+ * How long a silence from each source still counts as coverage (ADR-0018).
+ *
+ * Derived from each adapter's declared poll interval. The app supplies this to the rollup
+ * because `core` must not import `connectors` (ADR-0002) — the domain does not get to know
+ * what an MDM is.
+ */
+export function connectorCoverageGaps(): CoverageGaps {
+  return coverageGaps()
+}
+
 export function enabledActivitySources(): SignalSource[] {
   const flags = resolveConnectorFlags()
   const sources: SignalSource[] = []

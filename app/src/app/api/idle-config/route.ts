@@ -1,5 +1,11 @@
 import { audit } from '@oat/auth'
-import { DEFAULT_IDLE_POLICY, resolveIdlePolicy, type IdleConfigOverride } from '@oat/core'
+import {
+  DEFAULT_IDLE_POLICY,
+  normaliseSubType,
+  resolveIdlePolicy,
+  subTypeKey,
+  type IdleConfigOverride,
+} from '@oat/core'
 import { prisma } from '@oat/db'
 import { NextResponse } from 'next/server'
 import { z } from 'zod'
@@ -80,7 +86,11 @@ export async function PUT(request: Request): Promise<NextResponse> {
     return NextResponse.json({ error: 'Invalid config', details: parsed.error.flatten() }, { status: 400 })
   }
 
-  const { scope, key, thresholdMinutes, alertAfterMinutes } = parsed.data
+  const { scope, thresholdMinutes, alertAfterMinutes } = parsed.data
+
+  // Normalise the sub-type key on write, so " analyser " and "Analyser" cannot become two
+  // sub-types that each match half the assets (ADR-0019).
+  const key = scope === 'SUB_TYPE' ? canonicaliseSubTypeKey(parsed.data.key) : parsed.data.key
 
   // Validate the key against its scope, so a typo becomes an error rather than a config row
   // that silently never matches anything.
@@ -148,6 +158,15 @@ export async function DELETE(request: Request): Promise<NextResponse> {
  * is the class default). But saving one is a silent no-op the user believes worked, so it is
  * caught here where they can still fix it.
  */
+/** `LAB_INSTRUMENT: analyser ` -> `LAB_INSTRUMENT:Analyser`. Leaves a malformed key alone
+ *  so `validateKey` can reject it with a useful message. */
+function canonicaliseSubTypeKey(key: string): string {
+  const [assetClass, ...rest] = key.split(':')
+  const subType = normaliseSubType(rest.join(':'))
+  if (!assetClass || !subType) return key
+  return subTypeKey(assetClass as never, subType)
+}
+
 async function validateKey(scope: 'CLASS' | 'SUB_TYPE' | 'ASSET', key: string): Promise<string | null> {
   if (scope === 'CLASS') {
     return (CLASSES as readonly string[]).includes(key) ? null : `Unknown asset class "${key}"`
@@ -163,8 +182,10 @@ async function validateKey(scope: 'CLASS' | 'SUB_TYPE' | 'ASSET', key: string): 
     return 'Sub-type key must be "<CLASS>:<SubType>"'
   }
 
+  // Case-insensitive: the asset's stored sub-type is normalised, but be forgiving about how
+  // the key was typed — the point is to catch a real typo, not a capital letter.
   const match = await prisma.asset.findFirst({
-    where: { class: assetClass as never, subType },
+    where: { class: assetClass as never, subType: { equals: subType, mode: 'insensitive' } },
     select: { id: true },
   })
   return match ? null : `No asset has class ${assetClass} and sub-type "${subType}"`

@@ -154,6 +154,9 @@ importers:
       '@oat/auth':
         specifier: workspace:*
         version: link:../auth
+      '@oat/core':
+        specifier: workspace:*
+        version: link:../core
       '@oat/db':
         specifier: workspace:*
         version: link:../db
