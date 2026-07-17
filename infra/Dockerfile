@@ -21,6 +21,7 @@ COPY packages/sap/package.json ./packages/sap/
 COPY packages/connectors/package.json ./packages/connectors/
 COPY packages/auth/package.json ./packages/auth/
 COPY packages/seed/package.json ./packages/seed/
+COPY packages/jobs/package.json ./packages/jobs/
 RUN pnpm install --frozen-lockfile
 
 # ---- Build ------------------------------------------------------------------------

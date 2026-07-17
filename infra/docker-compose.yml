@@ -58,5 +58,36 @@ services:
       postgres:
         condition: service_healthy
 
+  # The scheduler: connector polls, the idle sweep, the nightly utilisation rollup.
+  #
+  # A separate process from the app, deliberately (ADR-0020) — same image, different command.
+  # It is a different workload with a different lifecycle, and it needs Node's dgram/fs and a
+  # Postgres driver, none of which belong in a bundle Next also builds for the Edge runtime.
+  worker:
+    build:
+      context: ..
+      dockerfile: infra/Dockerfile
+    restart: unless-stopped
+    command: ['pnpm', '--filter', '@oat/jobs', 'start']
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-oat}:${POSTGRES_PASSWORD:-oat_dev_password}@postgres:5432/${POSTGRES_DB:-oat}
+      NODE_ENV: production
+      # The app owns the schema; two containers racing `migrate deploy` at boot is a needless
+      # lock fight.
+      OAT_SKIP_MIGRATIONS: '1'
+      OAT_CONNECTOR_SCAN: '1'
+      OAT_CONNECTOR_SOTI: '1'
+      OAT_CONNECTOR_OSQUERY: '0'
+      OAT_CONNECTOR_SNMP: '0'
+      OAT_CONNECTOR_LIS: '0'
+      OAT_SAP_CLIENT: mock
+    depends_on:
+      postgres:
+        condition: service_healthy
+      # Not for the app itself, but for its migrations: the worker must not touch tables the
+      # app has not created yet.
+      app:
+        condition: service_started
+
 volumes:
   postgres-data:

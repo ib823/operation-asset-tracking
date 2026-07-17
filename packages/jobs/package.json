@@ -1,5 +1,5 @@
 {
-  "name": "@oat/connectors",
+  "name": "@oat/jobs",
   "version": "0.1.0",
   "private": true,
   "license": "Apache-2.0",
@@ -9,13 +9,14 @@
   "exports": {
     ".": "./src/index.ts"
   },
+  "scripts": {
+    "start": "tsx src/worker.ts"
+  },
   "dependencies": {
+    "@oat/connectors": "workspace:*",
     "@oat/core": "workspace:*",
     "@oat/db": "workspace:*",
-    "net-snmp": "^3.26.3",
-    "zod": "^3.24.1"
-  },
-  "devDependencies": {
-    "@types/net-snmp": "^3.23.0"
+    "pg-boss": "^12.26.1",
+    "tsx": "^4.19.2"
   }
 }

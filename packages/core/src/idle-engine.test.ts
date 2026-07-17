@@ -312,6 +312,55 @@ describe('scan and telemetry precedence', () => {
       expect(projection.status).toBe('IN_USE')
     })
 
+    it('lets a later scan clear an earlier UNDER_REPAIR that is STILL IN THE LOG', () => {
+      // The realistic case, and a real bug this missed for two phases.
+      //
+      // `reprojectAsset` replays the signal log (ADR-0006), so BOTH scans are always in the
+      // batch — not just the newest. The engine tracked the latest administrative assertion
+      // and the latest contested one separately, then let administrative win unconditionally.
+      // So January's "under repair" beat today's "it is back in use", forever: an operator
+      // could put an asset into repair and never take it out.
+      //
+      // The old test passed only because it fed a single signal, which is not what history
+      // looks like.
+      const { projection } = projectIt({
+        current: underRepair,
+        signals: [
+          signal({ source: 'scan', type: 'status', value: { status: 'UNDER_REPAIR' }, observedAt: minutesBefore(500) }),
+          scanInUse(2),
+        ],
+      })
+
+      expect(projection.status).toBe('IN_USE')
+    })
+
+    it('keeps UNDER_REPAIR when it is the later of the two scans', () => {
+      // The same rule in the other direction: latest human word wins, whichever kind it is.
+      const { projection } = projectIt({
+        current: fresh,
+        signals: [
+          scanInUse(500),
+          signal({ source: 'scan', type: 'status', value: { status: 'UNDER_REPAIR' }, observedAt: minutesBefore(2) }),
+        ],
+      })
+
+      expect(projection.status).toBe('UNDER_REPAIR')
+    })
+
+    it('is order-independent about which human word came last', () => {
+      const older = signal({
+        source: 'scan',
+        type: 'status',
+        value: { status: 'UNDER_REPAIR' },
+        observedAt: minutesBefore(500),
+      })
+      const newer = scanInUse(2)
+
+      expect(projectIt({ current: underRepair, signals: [older, newer] }).projection.status).toBe(
+        projectIt({ current: underRepair, signals: [newer, older] }).projection.status,
+      )
+    })
+
     it('lets a scan assert UNDER_REPAIR over live telemetry', () => {
       const { projection } = projectIt({
         signals: [

@@ -3,10 +3,12 @@ const nextConfig = {
   reactStrictMode: true,
   // The workspace packages ship TypeScript source rather than a build step. Next compiles
   // them itself, which keeps the monorepo free of a watch-and-rebuild cycle in dev.
-  transpilePackages: ['@oat/core', '@oat/db', '@oat/sap', '@oat/connectors', '@oat/auth'],
+  transpilePackages: ['@oat/core', '@oat/db', '@oat/sap', '@oat/connectors', '@oat/auth', '@oat/jobs'],
   outputFileTracingRoot: new URL('..', import.meta.url).pathname,
   // Prisma's engine is a native binary; Next must not try to bundle it into the server build.
-  serverExternalPackages: ['@prisma/client', '.prisma/client'],
+  //   @prisma/client  — ships a native engine binary
+  //   net-snmp        — requires Node's `dgram`/`net`, which have no bundler equivalent
+  serverExternalPackages: ['@prisma/client', '.prisma/client', 'net-snmp'],
   experimental: {
     /**
      * Hosts allowed to invoke Server Actions.
