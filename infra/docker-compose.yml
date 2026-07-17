@@ -35,6 +35,10 @@ services:
       # Required, or Auth.js throws UntrustedHost inside middleware — which Next swallows,
       # silently disabling the gate. See ADR-0012.
       AUTH_TRUST_HOST: 'true'
+      # Hosts allowed to invoke Server Actions. REQUIRED behind a reverse proxy, or every
+      # form in the app fails with "Invalid Server Actions request" — Next compares the
+      # browser's origin against x-forwarded-host. Comma-separated, no protocol.
+      OAT_ALLOWED_ORIGINS: ${OAT_ALLOWED_ORIGINS:-}
       # For MACHINE callers only (the scheduler's sweep, connector polls). Humans use
       # sessions + RBAC. Fails closed when unset.
       OAT_SERVICE_TOKEN: ${OAT_SERVICE_TOKEN:-oat_local_demo_service_token}
