@@ -94,7 +94,9 @@ export async function startScheduler(): Promise<PgBoss | null> {
     await register(instance, QUEUE.pollSoti, everyMinutes(sotiConnector().connector.pollIntervalMinutes), async () => {
       const { connector, mode } = sotiConnector()
       const result = await pollConnector(prisma, connector)
-      console.log(`[scheduler] soti (${mode}): ${result.accepted} accepted, ${result.unmatched.length} unmatched`)
+      const detail = `${mode}: ${result.accepted} accepted, ${result.unmatched.length} unmatched`
+      console.log(`[scheduler] soti ${detail}`)
+      return detail
     })
   }
 
@@ -106,7 +108,9 @@ export async function startScheduler(): Promise<PgBoss | null> {
       async () => {
         const { connector, mode } = osqueryConnector()
         const result = await pollConnector(prisma, connector)
-        console.log(`[scheduler] osquery (${mode}): ${result.accepted} accepted`)
+        const detail = `${mode}: ${result.accepted} accepted`
+        console.log(`[scheduler] osquery ${detail}`)
+        return detail
       },
     )
   }
@@ -115,7 +119,9 @@ export async function startScheduler(): Promise<PgBoss | null> {
     await register(instance, QUEUE.pollSnmp, everyMinutes(snmpConnector().connector.pollIntervalMinutes), async () => {
       const { connector, mode } = snmpConnector()
       const result = await pollConnector(prisma, connector)
-      console.log(`[scheduler] snmp (${mode}): ${result.accepted} accepted`)
+      const detail = `${mode}: ${result.accepted} accepted`
+      console.log(`[scheduler] snmp ${detail}`)
+      return detail
     })
   }
 
@@ -125,6 +131,7 @@ export async function startScheduler(): Promise<PgBoss | null> {
   await register(instance, QUEUE.sweep, SWEEP_CRON, async () => {
     const { swept } = await sweepIdleAssets(prisma)
     if (swept > 0) console.log(`[scheduler] idle sweep: ${swept} assets re-projected`)
+    return `${swept} assets re-projected`
   })
 
   await register(instance, QUEUE.rollup, ROLLUP_CRON, async () => {
@@ -132,10 +139,11 @@ export async function startScheduler(): Promise<PgBoss | null> {
       enabledSources: enabledActivitySources(),
       coverageGaps: connectorCoverageGaps(),
     })
-    console.log(
-      `[scheduler] rollup ${summary.periodStart.toISOString()}: ${summary.written} written, ` +
-        `${summary.unobserved} unobserved, skipped [${summary.skippedClasses.join(', ')}]`,
-    )
+    const detail =
+      `${summary.periodStart.toISOString().slice(0, 10)}: ${summary.written} written, ` +
+      `${summary.unobserved} unobserved, skipped [${summary.skippedClasses.join(', ')}]`
+    console.log(`[scheduler] rollup ${detail}`)
+    return detail
   })
 
   console.log('[scheduler] started')
@@ -148,19 +156,51 @@ export async function startScheduler(): Promise<PgBoss | null> {
  * A handler that throws must not take the scheduler down — one unreachable MDM is not a
  * reason to stop sweeping idle assets. pg-boss retries the job; we log and move on.
  */
-async function register(instance: PgBoss, queue: string, cron: string, handler: () => Promise<void>): Promise<void> {
+async function register(instance: PgBoss, queue: string, cron: string, handler: () => Promise<string>): Promise<void> {
   await instance.createQueue(queue)
 
   await instance.work(queue, async () => {
+    const startedAt = new Date()
+    // Record the START before doing the work: a job that hangs forever leaves a row with a
+    // startedAt and no finishedAt, which is exactly the state worth seeing. Only writing on
+    // success would make a wedged worker indistinguishable from an absent one.
+    await recordRun(queue, { startedAt, ok: true, detail: 'running' })
+
     try {
-      await handler()
+      const detail = await handler()
+      await recordRun(queue, { startedAt, finishedAt: new Date(), ok: true, detail })
     } catch (error) {
-      console.error(`[scheduler] ${queue} failed:`, error instanceof Error ? error.message : error)
+      const detail = error instanceof Error ? error.message : String(error)
+      console.error(`[scheduler] ${queue} failed:`, detail)
+      await recordRun(queue, { startedAt, finishedAt: new Date(), ok: false, detail })
+      // Rethrow so pg-boss retries. The heartbeat is for humans; the retry is for the job.
       throw error
     }
   })
 
   await instance.schedule(queue, cron)
+}
+
+/**
+ * Record a job's heartbeat.
+ *
+ * Never allowed to fail the job: a heartbeat that breaks the work it measures would be worse
+ * than no heartbeat. If this write fails, the run still counts — the row just goes stale, and
+ * a stale row is the signal anyway.
+ */
+async function recordRun(
+  queue: string,
+  run: { startedAt: Date; finishedAt?: Date; ok: boolean; detail?: string },
+): Promise<void> {
+  try {
+    await prisma.jobRun.upsert({
+      where: { queue },
+      create: { queue, ...run },
+      update: { ...run, finishedAt: run.finishedAt ?? null },
+    })
+  } catch (error) {
+    console.error(`[scheduler] could not record run for ${queue}:`, error instanceof Error ? error.message : error)
+  }
 }
 
 /** Stop the scheduler. For tests and for a clean shutdown. */

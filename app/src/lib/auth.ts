@@ -1,4 +1,4 @@
-import type { Principal } from '@oat/auth'
+import { auditAuth, AUTH_EVENT, clearRateLimit, rateLimit, type Principal } from '@oat/auth'
 import { revalidate, verifyCredentials } from '@oat/auth/server'
 import type { Role } from '@oat/db'
 import { prisma } from '@oat/db'
@@ -57,8 +57,29 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
         const password = typeof raw?.password === 'string' ? raw.password : ''
         if (!email || !password) return null
 
+        // Every attempt counts, not only failures: counting failures alone lets an attacker
+        // interleave a known-good credential to keep their bucket clear.
+        const limit = rateLimit(`signin:${email.toLowerCase().trim()}`)
+        if (!limit.allowed) {
+          await auditAuth(prisma, AUTH_EVENT.signInFailed, email, { reason: 'rate limited' })
+          return null
+        }
+
         const principal = await verifyCredentials(prisma, email, password)
-        if (!principal) return null
+
+        if (!principal) {
+          // Logged with the email as supplied, even if no such account exists — that is the
+          // point. One failure is a typo; two hundred is an attack, and neither was visible
+          // before this. The reason is deliberately uninformative: the log must not become a
+          // way to discover which accounts are real.
+          await auditAuth(prisma, AUTH_EVENT.signInFailed, email, { reason: 'invalid credentials' })
+          return null
+        }
+
+        // A legitimate user who fat-fingered their password twice must not then be locked out
+        // by their own success.
+        clearRateLimit(`signin:${email.toLowerCase().trim()}`)
+        await auditAuth(prisma, AUTH_EVENT.signInSucceeded, principal.email)
 
         return {
           id: principal.id,
@@ -90,7 +111,14 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
       const principal = await revalidate(prisma, token.sub, (token.tokenVersion as number) ?? -1)
       // Returning null invalidates the session — the user is gone, deactivated, or their
       // tokens were revoked.
-      if (!principal) return null
+      if (!principal) {
+        // Worth a line: a token rejected long after issue means a deactivation or a
+        // revocation took effect, which is exactly what an auditor asks about.
+        await auditAuth(prisma, AUTH_EVENT.tokenRejected, String(token.email ?? token.sub), {
+          reason: 'user inactive, removed, or tokens revoked',
+        })
+        return null
+      }
 
       token.email = principal.email
       token.roles = principal.roles

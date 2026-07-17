@@ -2,9 +2,11 @@ import type { Metadata } from 'next'
 import Link from 'next/link'
 import { can, type Permission } from '@oat/auth'
 import { prisma } from '@oat/db'
+import { auditAuth, AUTH_EVENT } from '@oat/auth'
 import { revokeSessions } from '@oat/auth/server'
 import { redirect } from 'next/navigation'
 import { currentPrincipal, signOut } from '@/lib/auth'
+import { WorkerStatus } from '@/components/worker-status'
 import './globals.css'
 
 export const metadata: Metadata = {
@@ -22,6 +24,7 @@ const NAV: Array<{ href: string; label: string; permission: Permission }> = [
   { href: '/', label: 'Dashboard', permission: 'asset:read' },
   { href: '/assets', label: 'Assets', permission: 'asset:read' },
   { href: '/alerts', label: 'Alerts', permission: 'utilisation:read' },
+  { href: '/heatmap', label: 'Heatmap', permission: 'utilisation:read' },
   { href: '/reconciliation', label: 'Reconciliation', permission: 'reconciliation:read' },
   { href: '/settings/idle-policy', label: 'Idle policy', permission: 'utilisation:read' },
 ]
@@ -48,6 +51,9 @@ export default async function RootLayout({ children }: { children: React.ReactNo
             </nav>
 
             <div className="ml-auto flex items-center gap-4">
+              {/* Renders nothing when the scheduler is healthy: a permanent green badge is
+                  furniture people stop seeing, which is worse than nothing. */}
+              {principal ? <WorkerStatus /> : null}
               {/* Stated plainly and permanently: the OAT is the operational layer, and SAP
                   remains the financial record. Users must never mistake this for the ledger. */}
               <span className="hidden text-xs text-muted-foreground lg:block">
@@ -70,6 +76,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
                     // Bumping tokenVersion (ADR-0011) makes the outcome independent of that
                     // race: whatever happens to the cookie, the token no longer validates.
                     // See ADR-0016.
+                    await auditAuth(prisma, AUTH_EVENT.signedOut, principal.email)
                     await revokeSessions(prisma, principal.id)
                     await signOut({ redirect: false })
                     redirect('/signin')

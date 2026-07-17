@@ -1,6 +1,7 @@
 import NextAuth from 'next-auth'
 import { NextResponse } from 'next/server'
 import { authConfig } from '@/lib/auth.config'
+import { withSecurityHeaders } from '@/lib/security-headers'
 
 /**
  * Require a session for everything except the sign-in page, the auth endpoints, and health.
@@ -35,21 +36,23 @@ const SELF_GUARDED = ['/signin', '/api/auth', '/api/health', '/api/admin', '/api
 export default auth((request) => {
   const { pathname } = request.nextUrl
 
+  // Security headers on EVERY response, including error pages and the 404 — which is exactly
+  // where a per-route approach forgets them.
   if (SELF_GUARDED.some((path) => pathname === path || pathname.startsWith(`${path}/`))) {
-    return NextResponse.next()
+    return withSecurityHeaders(NextResponse.next())
   }
 
-  if (request.auth) return NextResponse.next()
+  if (request.auth) return withSecurityHeaders(NextResponse.next())
 
   // API callers get a 401 they can act on; humans get sent to sign in, and back to where
   // they were going.
   if (pathname.startsWith('/api/')) {
-    return NextResponse.json({ error: 'Unauthorised' }, { status: 401 })
+    return withSecurityHeaders(NextResponse.json({ error: 'Unauthorised' }, { status: 401 }))
   }
 
   const signin = new URL('/signin', externalOrigin(request))
   signin.searchParams.set('from', pathname)
-  return NextResponse.redirect(signin)
+  return withSecurityHeaders(NextResponse.redirect(signin))
 })
 
 /**

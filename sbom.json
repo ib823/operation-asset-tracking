@@ -1,0 +1,1940 @@
+{
+  "bomFormat": "CycloneDX",
+  "specVersion": "1.5",
+  "version": 1,
+  "metadata": {
+    "component": {
+      "type": "application",
+      "name": "lablink-oat",
+      "version": "0.1.0"
+    },
+    "licenses": [
+      {
+        "license": {
+          "id": "Apache-2.0"
+        }
+      }
+    ]
+  },
+  "components": [
+    {
+      "type": "library",
+      "name": "@auth/core",
+      "version": "0.34.3",
+      "purl": "pkg:npm/%40auth/core@0.34.3",
+      "licenses": [
+        {
+          "license": {
+            "id": "ISC"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://authjs.dev"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "name": "@auth/core",
+      "version": "0.41.2",
+      "purl": "pkg:npm/%40auth/core@0.41.2",
+      "licenses": [
+        {
+          "license": {
+            "id": "ISC"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://authjs.dev"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "name": "@esbuild/linux-x64",
+      "version": "0.28.1",
+      "purl": "pkg:npm/%40esbuild/linux-x64@0.28.1",
+      "licenses": [
+        {
+          "license": {
+            "id": "MIT"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/evanw/esbuild#readme"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "name": "@next/env",
+      "version": "15.5.20",
+      "purl": "pkg:npm/%40next/env@15.5.20",
+      "licenses": [
+        {
+          "license": {
+            "id": "MIT"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/vercel/next.js#readme"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "name": "@next/swc-linux-x64-gnu",
+      "version": "15.5.20",
+      "purl": "pkg:npm/%40next/swc-linux-x64-gnu@15.5.20",
+      "licenses": [
+        {
+          "license": {
+            "id": "MIT"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/vercel/next.js#readme"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "name": "@panva/hkdf",
+      "version": "1.2.1",
+      "purl": "pkg:npm/%40panva/hkdf@1.2.1",
+      "licenses": [
+        {
+          "license": {
+            "id": "MIT"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/panva/hkdf"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "name": "@playwright/test",
+      "version": "1.61.1",
+      "purl": "pkg:npm/%40playwright/test@1.61.1",
+      "licenses": [
+        {
+          "license": {
+            "id": "Apache-2.0"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://playwright.dev"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "name": "@prisma/client",
+      "version": "6.19.3",
+      "purl": "pkg:npm/%40prisma/client@6.19.3",
+      "licenses": [
+        {
+          "license": {
+            "id": "Apache-2.0"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://www.prisma.io"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "name": "@prisma/config",
+      "version": "6.19.3",
+      "purl": "pkg:npm/%40prisma/config@6.19.3",
+      "licenses": [
+        {
+          "license": {
+            "id": "Apache-2.0"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/prisma/prisma#readme"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "name": "@prisma/debug",
+      "version": "6.19.3",
+      "purl": "pkg:npm/%40prisma/debug@6.19.3",
+      "licenses": [
+        {
+          "license": {
+            "id": "Apache-2.0"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://www.prisma.io"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "name": "@prisma/engines",
+      "version": "6.19.3",
+      "purl": "pkg:npm/%40prisma/engines@6.19.3",
+      "licenses": [
+        {
+          "license": {
+            "id": "Apache-2.0"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/prisma/prisma#readme"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "name": "@prisma/engines-version",
+      "version": "7.1.1-3.c2990dca591cba766e3b7ef5d9e8a84796e47ab7",
+      "purl": "pkg:npm/%40prisma/engines-version@7.1.1-3.c2990dca591cba766e3b7ef5d9e8a84796e47ab7",
+      "licenses": [
+        {
+          "license": {
+            "id": "Apache-2.0"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/prisma/engines-wrapper#readme"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "name": "@prisma/fetch-engine",
+      "version": "6.19.3",
+      "purl": "pkg:npm/%40prisma/fetch-engine@6.19.3",
+      "licenses": [
+        {
+          "license": {
+            "id": "Apache-2.0"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://www.prisma.io"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "name": "@prisma/get-platform",
+      "version": "6.19.3",
+      "purl": "pkg:npm/%40prisma/get-platform@6.19.3",
+      "licenses": [
+        {
+          "license": {
+            "id": "Apache-2.0"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://www.prisma.io"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "name": "@standard-schema/spec",
+      "version": "1.1.0",
+      "purl": "pkg:npm/%40standard-schema/spec@1.1.0",
+      "licenses": [
+        {
+          "license": {
+            "id": "MIT"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://standardschema.dev"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "name": "@swc/helpers",
+      "version": "0.5.15",
+      "purl": "pkg:npm/%40swc/helpers@0.5.15",
+      "licenses": [
+        {
+          "license": {
+            "id": "Apache-2.0"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://swc.rs"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "name": "@types/cookie",
+      "version": "0.6.0",
+      "purl": "pkg:npm/%40types/cookie@0.6.0",
+      "licenses": [
+        {
+          "license": {
+            "id": "MIT"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/DefinitelyTyped/DefinitelyTyped/tree/master/types/cookie"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "name": "asn1-ber",
+      "version": "1.2.2",
+      "purl": "pkg:npm/asn1-ber@1.2.2",
+      "licenses": [
+        {
+          "license": {
+            "id": "MIT"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/markabrahams/node-asn1-ber#readme"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "name": "c12",
+      "version": "3.1.0",
+      "purl": "pkg:npm/c12@3.1.0",
+      "licenses": [
+        {
+          "license": {
+            "id": "MIT"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/unjs/c12#readme"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "name": "caniuse-lite",
+      "version": "1.0.30001806",
+      "purl": "pkg:npm/caniuse-lite@1.0.30001806",
+      "licenses": [
+        {
+          "license": {
+            "id": "CC-BY-4.0"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/browserslist/caniuse-lite#readme"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "name": "chokidar",
+      "version": "4.0.3",
+      "purl": "pkg:npm/chokidar@4.0.3",
+      "licenses": [
+        {
+          "license": {
+            "id": "MIT"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/paulmillr/chokidar"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "name": "citty",
+      "version": "0.1.6",
+      "purl": "pkg:npm/citty@0.1.6",
+      "licenses": [
+        {
+          "license": {
+            "id": "MIT"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/unjs/citty#readme"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "name": "citty",
+      "version": "0.2.2",
+      "purl": "pkg:npm/citty@0.2.2",
+      "licenses": [
+        {
+          "license": {
+            "id": "MIT"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/unjs/citty#readme"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "name": "class-variance-authority",
+      "version": "0.7.1",
+      "purl": "pkg:npm/class-variance-authority@0.7.1",
+      "licenses": [
+        {
+          "license": {
+            "id": "Apache-2.0"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/joe-bell/cva#readme"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "name": "client-only",
+      "version": "0.0.1",
+      "purl": "pkg:npm/client-only@0.0.1",
+      "licenses": [
+        {
+          "license": {
+            "id": "MIT"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://reactjs.org/"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "name": "clsx",
+      "version": "2.1.1",
+      "purl": "pkg:npm/clsx@2.1.1",
+      "licenses": [
+        {
+          "license": {
+            "id": "MIT"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/lukeed/clsx#readme"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "name": "confbox",
+      "version": "0.2.4",
+      "purl": "pkg:npm/confbox@0.2.4",
+      "licenses": [
+        {
+          "license": {
+            "id": "MIT"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/unjs/confbox#readme"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "name": "consola",
+      "version": "3.4.2",
+      "purl": "pkg:npm/consola@3.4.2",
+      "licenses": [
+        {
+          "license": {
+            "id": "MIT"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/unjs/consola#readme"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "name": "cookie",
+      "version": "0.6.0",
+      "purl": "pkg:npm/cookie@0.6.0",
+      "licenses": [
+        {
+          "license": {
+            "id": "MIT"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/jshttp/cookie#readme"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "name": "cron-parser",
+      "version": "5.6.2",
+      "purl": "pkg:npm/cron-parser@5.6.2",
+      "licenses": [
+        {
+          "license": {
+            "id": "MIT"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/harrisiirak/cron-parser#readme"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "name": "deepmerge-ts",
+      "version": "7.1.5",
+      "purl": "pkg:npm/deepmerge-ts@7.1.5",
+      "licenses": [
+        {
+          "license": {
+            "id": "BSD-3-Clause"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/RebeccaStevens/deepmerge-ts#readme"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "name": "defu",
+      "version": "6.1.7",
+      "purl": "pkg:npm/defu@6.1.7",
+      "licenses": [
+        {
+          "license": {
+            "id": "MIT"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/unjs/defu#readme"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "name": "destr",
+      "version": "2.0.5",
+      "purl": "pkg:npm/destr@2.0.5",
+      "licenses": [
+        {
+          "license": {
+            "id": "MIT"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/unjs/destr#readme"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "name": "dotenv",
+      "version": "16.6.1",
+      "purl": "pkg:npm/dotenv@16.6.1",
+      "licenses": [
+        {
+          "license": {
+            "id": "BSD-2-Clause"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/motdotla/dotenv#readme"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "name": "effect",
+      "version": "3.21.0",
+      "purl": "pkg:npm/effect@3.21.0",
+      "licenses": [
+        {
+          "license": {
+            "id": "MIT"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://effect.website"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "name": "empathic",
+      "version": "2.0.0",
+      "purl": "pkg:npm/empathic@2.0.0",
+      "licenses": [
+        {
+          "license": {
+            "id": "MIT"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/lukeed/empathic#readme"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "name": "esbuild",
+      "version": "0.28.1",
+      "purl": "pkg:npm/esbuild@0.28.1",
+      "licenses": [
+        {
+          "license": {
+            "id": "MIT"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/evanw/esbuild#readme"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "name": "exsolve",
+      "version": "1.1.0",
+      "purl": "pkg:npm/exsolve@1.1.0",
+      "licenses": [
+        {
+          "license": {
+            "id": "MIT"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/unjs/exsolve#readme"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "name": "fast-check",
+      "version": "3.23.2",
+      "purl": "pkg:npm/fast-check@3.23.2",
+      "licenses": [
+        {
+          "license": {
+            "id": "MIT"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://fast-check.dev/"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "name": "giget",
+      "version": "2.0.0",
+      "purl": "pkg:npm/giget@2.0.0",
+      "licenses": [
+        {
+          "license": {
+            "id": "MIT"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/unjs/giget#readme"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "name": "jiti",
+      "version": "2.7.0",
+      "purl": "pkg:npm/jiti@2.7.0",
+      "licenses": [
+        {
+          "license": {
+            "id": "MIT"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/unjs/jiti#readme"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "name": "jose",
+      "version": "5.10.0",
+      "purl": "pkg:npm/jose@5.10.0",
+      "licenses": [
+        {
+          "license": {
+            "id": "MIT"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/panva/jose"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "name": "jose",
+      "version": "6.2.3",
+      "purl": "pkg:npm/jose@6.2.3",
+      "licenses": [
+        {
+          "license": {
+            "id": "MIT"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/panva/jose"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "name": "lucide-react",
+      "version": "0.469.0",
+      "purl": "pkg:npm/lucide-react@0.469.0",
+      "licenses": [
+        {
+          "license": {
+            "id": "ISC"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://lucide.dev"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "name": "luxon",
+      "version": "3.7.2",
+      "purl": "pkg:npm/luxon@3.7.2",
+      "licenses": [
+        {
+          "license": {
+            "id": "MIT"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/moment/luxon#readme"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "name": "nanoid",
+      "version": "3.3.16",
+      "purl": "pkg:npm/nanoid@3.3.16",
+      "licenses": [
+        {
+          "license": {
+            "id": "MIT"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/ai/nanoid#readme"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "name": "net-snmp",
+      "version": "3.26.3",
+      "purl": "pkg:npm/net-snmp@3.26.3",
+      "licenses": [
+        {
+          "license": {
+            "id": "MIT"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/markabrahams/node-net-snmp#readme"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "name": "next",
+      "version": "15.5.20",
+      "purl": "pkg:npm/next@15.5.20",
+      "licenses": [
+        {
+          "license": {
+            "id": "MIT"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://nextjs.org"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "name": "next-auth",
+      "version": "5.0.0-beta.31",
+      "purl": "pkg:npm/next-auth@5.0.0-beta.31",
+      "licenses": [
+        {
+          "license": {
+            "id": "ISC"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://nextjs.authjs.dev"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "name": "node-fetch-native",
+      "version": "1.6.7",
+      "purl": "pkg:npm/node-fetch-native@1.6.7",
+      "licenses": [
+        {
+          "license": {
+            "id": "MIT"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/unjs/node-fetch-native#readme"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "name": "non-error",
+      "version": "0.1.0",
+      "purl": "pkg:npm/non-error@0.1.0",
+      "licenses": [
+        {
+          "license": {
+            "id": "MIT"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/sindresorhus/non-error#readme"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "name": "nypm",
+      "version": "0.6.8",
+      "purl": "pkg:npm/nypm@0.6.8",
+      "licenses": [
+        {
+          "license": {
+            "id": "MIT"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/unjs/nypm#readme"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "name": "oauth4webapi",
+      "version": "2.17.0",
+      "purl": "pkg:npm/oauth4webapi@2.17.0",
+      "licenses": [
+        {
+          "license": {
+            "id": "MIT"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/panva/oauth4webapi"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "name": "oauth4webapi",
+      "version": "3.8.6",
+      "purl": "pkg:npm/oauth4webapi@3.8.6",
+      "licenses": [
+        {
+          "license": {
+            "id": "MIT"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/panva/oauth4webapi"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "name": "ohash",
+      "version": "2.0.11",
+      "purl": "pkg:npm/ohash@2.0.11",
+      "licenses": [
+        {
+          "license": {
+            "id": "MIT"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/unjs/ohash#readme"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "name": "pathe",
+      "version": "2.0.3",
+      "purl": "pkg:npm/pathe@2.0.3",
+      "licenses": [
+        {
+          "license": {
+            "id": "MIT"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/unjs/pathe#readme"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "name": "perfect-debounce",
+      "version": "1.0.0",
+      "purl": "pkg:npm/perfect-debounce@1.0.0",
+      "licenses": [
+        {
+          "license": {
+            "id": "MIT"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/unjs/perfect-debounce#readme"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "name": "pg",
+      "version": "8.22.0",
+      "purl": "pkg:npm/pg@8.22.0",
+      "licenses": [
+        {
+          "license": {
+            "id": "MIT"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/brianc/node-postgres"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "name": "pg-boss",
+      "version": "12.26.1",
+      "purl": "pkg:npm/pg-boss@12.26.1",
+      "licenses": [
+        {
+          "license": {
+            "id": "MIT"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://timgit.github.io/pg-boss"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "name": "pg-cloudflare",
+      "version": "1.4.0",
+      "purl": "pkg:npm/pg-cloudflare@1.4.0",
+      "licenses": [
+        {
+          "license": {
+            "id": "MIT"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/brianc/node-postgres#readme"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "name": "pg-connection-string",
+      "version": "2.14.0",
+      "purl": "pkg:npm/pg-connection-string@2.14.0",
+      "licenses": [
+        {
+          "license": {
+            "id": "MIT"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/brianc/node-postgres/tree/master/packages/pg-connection-string"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "name": "pg-int8",
+      "version": "1.0.1",
+      "purl": "pkg:npm/pg-int8@1.0.1",
+      "licenses": [
+        {
+          "license": {
+            "id": "ISC"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/charmander/pg-int8#readme"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "name": "pg-pool",
+      "version": "3.14.0",
+      "purl": "pkg:npm/pg-pool@3.14.0",
+      "licenses": [
+        {
+          "license": {
+            "id": "MIT"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/brianc/node-postgres/tree/master/packages/pg-pool#readme"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "name": "pg-protocol",
+      "version": "1.15.0",
+      "purl": "pkg:npm/pg-protocol@1.15.0",
+      "licenses": [
+        {
+          "license": {
+            "id": "MIT"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/brianc/node-postgres#readme"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "name": "pg-types",
+      "version": "2.2.0",
+      "purl": "pkg:npm/pg-types@2.2.0",
+      "licenses": [
+        {
+          "license": {
+            "id": "MIT"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/brianc/node-pg-types"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "name": "pgpass",
+      "version": "1.0.5",
+      "purl": "pkg:npm/pgpass@1.0.5",
+      "licenses": [
+        {
+          "license": {
+            "id": "MIT"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/hoegaarden/pgpass#readme"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "name": "picocolors",
+      "version": "1.1.1",
+      "purl": "pkg:npm/picocolors@1.1.1",
+      "licenses": [
+        {
+          "license": {
+            "id": "ISC"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/alexeyraspopov/picocolors#readme"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "name": "pkg-types",
+      "version": "2.3.1",
+      "purl": "pkg:npm/pkg-types@2.3.1",
+      "licenses": [
+        {
+          "license": {
+            "id": "MIT"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/unjs/pkg-types#readme"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "name": "playwright",
+      "version": "1.61.1",
+      "purl": "pkg:npm/playwright@1.61.1",
+      "licenses": [
+        {
+          "license": {
+            "id": "Apache-2.0"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://playwright.dev"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "name": "playwright-core",
+      "version": "1.61.1",
+      "purl": "pkg:npm/playwright-core@1.61.1",
+      "licenses": [
+        {
+          "license": {
+            "id": "Apache-2.0"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://playwright.dev"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "name": "postcss",
+      "version": "8.4.31",
+      "purl": "pkg:npm/postcss@8.4.31",
+      "licenses": [
+        {
+          "license": {
+            "id": "MIT"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://postcss.org/"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "name": "postgres-array",
+      "version": "2.0.0",
+      "purl": "pkg:npm/postgres-array@2.0.0",
+      "licenses": [
+        {
+          "license": {
+            "id": "MIT"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/bendrucker/postgres-array#readme"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "name": "postgres-bytea",
+      "version": "1.0.1",
+      "purl": "pkg:npm/postgres-bytea@1.0.1",
+      "licenses": [
+        {
+          "license": {
+            "id": "MIT"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/bendrucker/postgres-bytea#readme"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "name": "postgres-date",
+      "version": "1.0.7",
+      "purl": "pkg:npm/postgres-date@1.0.7",
+      "licenses": [
+        {
+          "license": {
+            "id": "MIT"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/bendrucker/postgres-date#readme"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "name": "postgres-interval",
+      "version": "1.2.0",
+      "purl": "pkg:npm/postgres-interval@1.2.0",
+      "licenses": [
+        {
+          "license": {
+            "id": "MIT"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/bendrucker/postgres-interval#readme"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "name": "preact",
+      "version": "10.11.3",
+      "purl": "pkg:npm/preact@10.11.3",
+      "licenses": [
+        {
+          "license": {
+            "id": "MIT"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://preactjs.com"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "name": "preact",
+      "version": "10.24.3",
+      "purl": "pkg:npm/preact@10.24.3",
+      "licenses": [
+        {
+          "license": {
+            "id": "MIT"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://preactjs.com"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "name": "preact-render-to-string",
+      "version": "5.2.3",
+      "purl": "pkg:npm/preact-render-to-string@5.2.3",
+      "licenses": [
+        {
+          "license": {
+            "id": "MIT"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/preactjs/preact-render-to-string"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "name": "preact-render-to-string",
+      "version": "6.5.11",
+      "purl": "pkg:npm/preact-render-to-string@6.5.11",
+      "licenses": [
+        {
+          "license": {
+            "id": "MIT"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/preactjs/preact-render-to-string"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "name": "pretty-format",
+      "version": "3.8.0",
+      "purl": "pkg:npm/pretty-format@3.8.0",
+      "licenses": [
+        {
+          "license": {
+            "id": "MIT"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/thejameskle/pretty-format"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "name": "prisma",
+      "version": "6.19.3",
+      "purl": "pkg:npm/prisma@6.19.3",
+      "licenses": [
+        {
+          "license": {
+            "id": "Apache-2.0"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://www.prisma.io"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "name": "pure-rand",
+      "version": "6.1.0",
+      "purl": "pkg:npm/pure-rand@6.1.0",
+      "licenses": [
+        {
+          "license": {
+            "id": "MIT"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/dubzzz/pure-rand#readme"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "name": "rc9",
+      "version": "2.1.2",
+      "purl": "pkg:npm/rc9@2.1.2",
+      "licenses": [
+        {
+          "license": {
+            "id": "MIT"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/unjs/rc9#readme"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "name": "react",
+      "version": "19.2.7",
+      "purl": "pkg:npm/react@19.2.7",
+      "licenses": [
+        {
+          "license": {
+            "id": "MIT"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://react.dev/"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "name": "react-dom",
+      "version": "19.2.7",
+      "purl": "pkg:npm/react-dom@19.2.7",
+      "licenses": [
+        {
+          "license": {
+            "id": "MIT"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://react.dev/"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "name": "readdirp",
+      "version": "4.1.2",
+      "purl": "pkg:npm/readdirp@4.1.2",
+      "licenses": [
+        {
+          "license": {
+            "id": "MIT"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/paulmillr/readdirp"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "name": "scheduler",
+      "version": "0.27.0",
+      "purl": "pkg:npm/scheduler@0.27.0",
+      "licenses": [
+        {
+          "license": {
+            "id": "MIT"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://react.dev/"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "name": "serialize-error",
+      "version": "13.0.1",
+      "purl": "pkg:npm/serialize-error@13.0.1",
+      "licenses": [
+        {
+          "license": {
+            "id": "MIT"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/sindresorhus/serialize-error#readme"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "name": "smart-buffer",
+      "version": "4.2.0",
+      "purl": "pkg:npm/smart-buffer@4.2.0",
+      "licenses": [
+        {
+          "license": {
+            "id": "MIT"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/JoshGlazebrook/smart-buffer/"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "name": "source-map-js",
+      "version": "1.2.1",
+      "purl": "pkg:npm/source-map-js@1.2.1",
+      "licenses": [
+        {
+          "license": {
+            "id": "BSD-3-Clause"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/7rulnik/source-map-js"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "name": "split2",
+      "version": "4.2.0",
+      "purl": "pkg:npm/split2@4.2.0",
+      "licenses": [
+        {
+          "license": {
+            "id": "ISC"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/mcollina/split2#readme"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "name": "styled-jsx",
+      "version": "5.1.6",
+      "purl": "pkg:npm/styled-jsx@5.1.6",
+      "licenses": [
+        {
+          "license": {
+            "id": "MIT"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/vercel/styled-jsx#readme"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "name": "tagged-tag",
+      "version": "1.0.0",
+      "purl": "pkg:npm/tagged-tag@1.0.0",
+      "licenses": [
+        {
+          "license": {
+            "id": "MIT"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/sindresorhus/tagged-tag#readme"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "name": "tailwind-merge",
+      "version": "2.6.1",
+      "purl": "pkg:npm/tailwind-merge@2.6.1",
+      "licenses": [
+        {
+          "license": {
+            "id": "MIT"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/dcastil/tailwind-merge"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "name": "tinyexec",
+      "version": "1.2.4",
+      "purl": "pkg:npm/tinyexec@1.2.4",
+      "licenses": [
+        {
+          "license": {
+            "id": "MIT"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/tinylibs/tinyexec#readme"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "name": "tslib",
+      "version": "2.8.1",
+      "purl": "pkg:npm/tslib@2.8.1",
+      "licenses": [
+        {
+          "license": {
+            "id": "0BSD"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://www.typescriptlang.org/"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "name": "tsx",
+      "version": "4.23.1",
+      "purl": "pkg:npm/tsx@4.23.1",
+      "licenses": [
+        {
+          "license": {
+            "id": "MIT"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://tsx.hirok.io"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "name": "type-fest",
+      "version": "5.8.0",
+      "purl": "pkg:npm/type-fest@5.8.0",
+      "licenses": [
+        {
+          "license": {
+            "id": "(MIT OR CC0-1.0)"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/sindresorhus/type-fest#readme"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "name": "typescript",
+      "version": "5.9.3",
+      "purl": "pkg:npm/typescript@5.9.3",
+      "licenses": [
+        {
+          "license": {
+            "id": "Apache-2.0"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://www.typescriptlang.org/"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "name": "xtend",
+      "version": "4.0.2",
+      "purl": "pkg:npm/xtend@4.0.2",
+      "licenses": [
+        {
+          "license": {
+            "id": "MIT"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/Raynos/xtend"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "name": "zod",
+      "version": "3.25.76",
+      "purl": "pkg:npm/zod@3.25.76",
+      "licenses": [
+        {
+          "license": {
+            "id": "MIT"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://zod.dev"
+        }
+      ]
+    }
+  ]
+}

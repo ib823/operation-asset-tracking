@@ -393,6 +393,28 @@ model User {
   @@map("user")
 }
 
+/// The last run of each scheduled job.
+///
+/// Exists because a deployment with no worker looks perfectly healthy: every page loads,
+/// nothing errors, and the dashboard quietly freezes in the past — no asset ever goes idle,
+/// no scan TTL ever expires, no rollup is ever written. The absence of a heartbeat is the
+/// only evidence, and something has to hold it (ADR-0020, ADR-0022).
+///
+/// One row per queue, overwritten. This is a liveness signal, not a history — pg-boss keeps
+/// the job history, and duplicating it here would be a second source of truth to disagree.
+model JobRun {
+  /// The pg-boss queue name.
+  queue String @id
+
+  startedAt  DateTime
+  finishedAt DateTime?
+  ok         Boolean   @default(true)
+  /// A short outcome line: counts on success, the error message on failure.
+  detail     String?
+
+  @@map("job_run")
+}
+
 /// Audit trail over every mutation (RFP 1.41). Append-only.
 model AuditLog {
   id     String @id @default(cuid())
