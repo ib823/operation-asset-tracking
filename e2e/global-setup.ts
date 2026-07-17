@@ -15,11 +15,12 @@ export default function globalSetup(): void {
   const env = {
     ...process.env,
     DATABASE_URL: process.env.DATABASE_URL ?? 'postgresql://oat:oat_dev_password@localhost:5432/oat',
+    OAT_SEED_PASSWORD: process.env.OAT_SEED_PASSWORD ?? 'devpassword123',
   }
 
   const run = (args: string[]) => execFileSync('pnpm', args, { env, stdio: 'inherit' })
 
   run(['--filter', '@oat/db', 'migrate:deploy'])
-  run(['--filter', '@oat/db', 'reset:data'])
-  run(['--filter', '@oat/db', 'seed'])
+  run(['--filter', '@oat/seed', 'reset:data'])
+  run(['--filter', '@oat/seed', 'seed'])
 }

@@ -47,7 +47,7 @@ impossible by construction. See `docs/decisions/0004-sap-boundary-typed-contract
 | Framework | Next.js (App Router) — UI + API routes in one app          |
 | DB / ORM  | PostgreSQL / Prisma                                        |
 | UI        | Tailwind CSS + shadcn/ui                                   |
-| Auth      | Auth.js, with a seam to swap to OIDC/SAML (SAP IAS)        |
+| Auth      | Auth.js v5 (beta, pinned) + RBAC; OIDC/SAML seam (SAP IAS) |
 | Jobs      | pg-boss (pure Postgres)                                    |
 | API       | REST, documented with OpenAPI                              |
 | Packaging | Docker + docker-compose, `.devcontainer`                   |
@@ -61,9 +61,11 @@ app/                 Next.js UI + API (assets, dashboards, admin)
 packages/core        domain model + services (registry, utilisation/idle engine)
 packages/sap         SAP integration: master sync (in), event write-back (out)
 packages/connectors  pluggable signal adapters
-packages/db          Prisma schema, migrations, seed
-packages/auth        RBAC, roles, audit
-infra/               docker-compose, devcontainer, env samples, deploy notes
+packages/db          Prisma schema + migrations
+packages/seed        seed/reset tooling (separate: it composes db + auth, which would
+                     otherwise be a project-reference cycle)
+packages/auth        RBAC + audit (pure policy) · `@oat/auth/server` = credentials (Node only)
+infra/               docker-compose, Dockerfile, env samples, deploy notes
 docs/decisions/      ADRs
 ```
 
@@ -84,6 +86,25 @@ Priority order: **1. scan** (barcode/QR — the fallback floor, build first) · 
 
 **Graceful degradation is a hard requirement:** disable every connector and the register
 must remain fully usable via scan/manual entry.
+
+## Decided rules — do not re-litigate (see the ADRs)
+
+Confirmed with the client in Phase 1. Each is enforced in code and covered by tests.
+
+- **Idle is per-`AssetClass` config**, and each class declares which sources may evidence
+  _activity_. **A heartbeat is never activity.** Instruments derive idle from the **LIS**
+  only: an analyser idle overnight still answers SNMP, and counting that as use would make
+  every instrument report ~100% utilisation forever — the OAT's central claim, confidently
+  false. An instrument with no LIS feed reports _unknown_, never 100% (ADR-0008).
+- **SAP matching precedence**: existing link → **tag** → **serial** → **manual**. Unmatched
+  records go to the **reconciliation queue**. **The OAT never creates assets**, in either
+  direction: SAP knowing about an asset is not evidence anyone tagged it (ADR-0009).
+- **Scan vs telemetry own different facts.** Scan owns location, custodian, and
+  administrative status; telemetry owns idle/utilisation. On the one contested question
+  (IN_USE↔IDLE) a **scan wins for a 12h TTL**, then telemetry resumes automatically.
+  `UNDER_REPAIR`/`RETIRED` are **sticky — human-cleared only, no TTL**. Both events always
+  persist; sustained conflict raises an alert (ADR-0010).
+- **Access control lives in the page/route, never in middleware alone** (ADR-0012).
 
 ## Phase plan
 
@@ -110,3 +131,12 @@ the results. Pause for human review at phase gates only.
 **Unknowns:** assume the most reasonable value, build against a mock/config so the real
 value is a later swap, log it under "Assumptions to confirm" in `PROGRESS.md`, and
 continue. Only stop if no mock can substitute (missing credentials, irreversible decision).
+
+**Verify the property, not the mechanism.** Not a platitude — it has caught two fail-open
+security bugs here. Ask "can an anonymous caller read this?" and check with curl. Do not ask
+"is the middleware file present?": it was, and correct, while the whole register was exposed
+(ADR-0012). Likewise `scopeToSite` once returned `null` for both "unrestricted" and
+"restricted to nowhere", which would have shown a misconfigured branch user all 32 sites.
+
+Corollary: **a test must assert its preconditions actually happened.** A SOTI poll that
+silently 401'd once made a whole verification vacuous while reading as green.

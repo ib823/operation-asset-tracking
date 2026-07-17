@@ -1,3 +1,4 @@
+import { requirePermission } from '@/lib/page-auth'
 import { siteStatusBreakdown } from '@oat/core'
 import { prisma } from '@oat/db'
 import Link from 'next/link'
@@ -8,6 +9,8 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 export const dynamic = 'force-dynamic'
 
 export default async function DashboardPage() {
+  await requirePermission('asset:read', '/')
+
   const sites = await siteStatusBreakdown(prisma)
 
   const totals = sites.reduce(

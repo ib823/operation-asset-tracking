@@ -1,4 +1,5 @@
-import { PrismaClient, type AssetClass } from '@prisma/client'
+import { hashPassword } from '@oat/auth/server'
+import { PrismaClient, type AssetClass, type Role } from '@oat/db'
 
 /**
  * Phase 0 seed: 3 representative sites and 10 assets.
@@ -155,7 +156,47 @@ async function main(): Promise<void> {
     })
   }
 
-  console.log(`Seeded ${SITES.length} sites and ${ASSETS.length} assets.`)
+  await seedUsers(siteIds)
+
+  console.log(`Seeded ${SITES.length} sites, ${ASSETS.length} assets and ${USERS.length} users.`)
+}
+
+interface SeedUser {
+  email: string
+  name: string
+  roles: Role[]
+  siteCode?: string
+}
+
+/** One user per RFP Appendix F role, so RBAC is demoable and testable end to end. */
+const USERS: SeedUser[] = [
+  { email: 'finance@lablink.example', name: 'Faridah (Finance)', roles: ['FINANCE'] },
+  { email: 'purchasing@lablink.example', name: 'Prakash (Purchasing)', roles: ['PURCHASING'] },
+  { email: 'branch.kl@lablink.example', name: 'Bala (Branch, KL01)', roles: ['BRANCH'], siteCode: 'KL01' },
+  { email: 'branch.pj@lablink.example', name: 'Bee Ling (Branch, PJ02)', roles: ['BRANCH'], siteCode: 'PJ02' },
+  { email: 'labmanager@lablink.example', name: 'Hana (HQ Lab Manager)', roles: ['HQ_LAB_MANAGER'] },
+  { email: 'it@lablink.example', name: 'Iqbal (IT)', roles: ['IT'] },
+  { email: 'developer@lablink.example', name: 'Devi (Developer)', roles: ['DEVELOPER'] },
+]
+
+async function seedUsers(siteIds: Map<string, string>): Promise<void> {
+  // A known development password, never a secret and never a default in any real deployment.
+  // Overridable so CI and a demo can differ, and so nobody is tempted to hardcode one.
+  const password = process.env.OAT_SEED_PASSWORD ?? 'devpassword123'
+  const passwordHash = await hashPassword(password)
+
+  for (const user of USERS) {
+    const siteId = user.siteCode ? siteIds.get(user.siteCode) : null
+    if (user.siteCode && !siteId) throw new Error(`seed: no site ${user.siteCode} for user ${user.email}`)
+
+    await prisma.user.upsert({
+      where: { email: user.email },
+      create: { email: user.email, name: user.name, roles: user.roles, siteId: siteId ?? null, passwordHash },
+      // Re-seeding must not silently reset a password someone changed, but roles and site
+      // are seed-owned and safe to refresh.
+      update: { name: user.name, roles: user.roles, siteId: siteId ?? null },
+    })
+  }
 }
 
 main()

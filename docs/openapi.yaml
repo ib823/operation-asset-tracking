@@ -25,7 +25,7 @@ servers:
     description: Local development
 
 security:
-  - bearerAuth: []
+  - sessionAuth: []
 
 tags:
   - name: Assets
@@ -34,8 +34,10 @@ tags:
     description: Observations from connectors. Append-only.
   - name: SAP
     description: One-way asset master sync.
+  - name: Reconciliation
+    description: SAP records awaiting a human decision (ADR-0009).
   - name: Admin
-    description: Scheduled maintenance operations.
+    description: Scheduled maintenance operations. Machine callers only.
   - name: System
 
 paths:
@@ -61,7 +63,9 @@ paths:
     get:
       tags: [Assets]
       summary: List the operational register
-      security: []
+      description: |
+        Requires `asset:read`. Results are SITE-SCOPED: a BRANCH user sees only their own
+        site, and `siteId` cannot widen that — the scope narrows the query itself.
       parameters:
         - name: q
           in: query
@@ -119,6 +123,8 @@ paths:
   /connectors/soti/poll:
     post:
       tags: [Signals]
+      security:
+        - serviceToken: []
       summary: Poll the SOTI MDM and ingest device reports
       description: |
         Feature-flagged by `OAT_CONNECTOR_SOTI`; returns 503 when disabled, which is a
@@ -127,6 +133,10 @@ paths:
         Currently backed by a mock (assumption A2). The mock accepts `reports` in the body
         so demos and tests are deterministic; the real adapter fetches from the MDM and
         ignores the body.
+
+        Note the class rules of ADR-0008: a SOTI report can evidence activity for an IT or
+        SCANNER asset, but NOT for a LAB_INSTRUMENT, whose activity comes only from the LIS.
+        For an instrument this records presence and nothing more.
       requestBody:
         content:
           application/json:
@@ -165,11 +175,13 @@ paths:
   /admin/sweep:
     post:
       tags: [Admin]
+      security:
+        - serviceToken: []
       summary: Re-project live assets against the clock
       description: |
         Idleness accrues because nothing is reported, so it cannot be discovered by waiting
-        for a signal. This sweep turns silence into an IDLE status. Scheduled via pg-boss
-        from Phase 1.
+        for a signal. A scan's TTL also expires purely on the clock (ADR-0010), so this sweep
+        turns both kinds of silence into a status change. Scheduled via pg-boss in Phase 2.
       responses:
         '200':
           description: Sweep complete.
@@ -181,20 +193,108 @@ paths:
                   swept: { type: integer }
         '401': { $ref: '#/components/responses/Unauthorised' }
 
+  /reconciliation:
+    get:
+      tags: [Reconciliation]
+      summary: SAP records the sync could not place
+      description: |
+        Requires `reconciliation:read`. Ordered oldest-first: age is what matters. An item
+        open for three weeks is a problem; a long list of fresh ones is just last night's sync.
+      parameters:
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [OPEN, RESOLVED, DISMISSED]
+            default: OPEN
+      responses:
+        '200':
+          description: Queue items.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  count: { type: integer }
+                  items:
+                    type: array
+                    items: { $ref: '#/components/schemas/ReconciliationItem' }
+        '401': { $ref: '#/components/responses/Unauthorised' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /reconciliation/{id}:
+    post:
+      tags: [Reconciliation]
+      summary: Resolve a queue item
+      description: |
+        Requires `reconciliation:resolve`. Two outcomes, both human decisions:
+
+          * `link`    — this SAP record is that OAT asset. Establishes the shared key.
+          * `dismiss` — not ours to track. A reason is mandatory.
+
+        There is deliberately NO "create asset" action. If an asset should be tracked, someone
+        tags it physically and scans it in — which is the same act that makes the register true.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              oneOf:
+                - type: object
+                  required: [action, assetId]
+                  properties:
+                    action: { type: string, enum: [link] }
+                    assetId: { type: string }
+                - type: object
+                  required: [action, note]
+                  properties:
+                    action: { type: string, enum: [dismiss] }
+                    note: { type: string, minLength: 1 }
+      responses:
+        '200': { description: Resolved. }
+        '400': { description: Invalid request, or a dismissal with no reason. }
+        '401': { $ref: '#/components/responses/Unauthorised' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { description: Item or asset not found. }
+        '409':
+          description: |
+            Already resolved by someone else, or the asset is already linked to a different
+            SAP asset — never silently re-pointed.
+
 components:
   securitySchemes:
-    bearerAuth:
+    sessionAuth:
+      type: apiKey
+      in: cookie
+      name: authjs.session-token
+      description: |
+        Auth.js session cookie, obtained by signing in at `/signin`. Every route additionally
+        checks a PERMISSION and a SITE SCOPE — being authenticated is not being authorised.
+
+        Roles per RFP Appendix F: FINANCE, PURCHASING, BRANCH, HQ_LAB_MANAGER, IT, DEVELOPER.
+        BRANCH users are scoped to their own site; the scope narrows the query, so it cannot
+        be widened by passing another site's id.
+
+    serviceToken:
       type: http
       scheme: bearer
       description: |
-        Interim shared-secret token (`OAT_API_TOKEN`). Fails closed: if the token is not
-        configured, mutating endpoints return 503 rather than running unauthenticated.
-
-        Replaced by Auth.js session + RBAC in Phase 1, with roles per RFP Appendix F.
+        For MACHINE callers only — the scheduler's idle sweep and connector polls, which have
+        no session and no person behind them. `OAT_SERVICE_TOKEN`; fails closed (503) when
+        unset. A human session does NOT authorise these endpoints, and this token grants
+        nothing else.
 
   responses:
     Unauthorised:
-      description: Missing or invalid bearer token.
+      description: Not signed in, or an invalid/revoked session or service token.
+    Forbidden:
+      description: |
+        Signed in, but lacking the required permission — or the asset is at another site.
 
   schemas:
     AssetStatus:
@@ -303,20 +403,36 @@ components:
 
     SyncResult:
       type: object
+      description: |
+        There is deliberately no `created`. The OAT never creates assets from SAP records —
+        SAP knowing about an asset is not evidence that anyone tagged it, and a sync that can
+        invent register rows can poison the register unattended (ADR-0009).
       properties:
         fetched: { type: integer }
-        created:
-          type: integer
-          description: Assets SAP knows that the OAT had never tagged.
         linked:
           type: integer
           description: Existing OAT assets newly matched to an SAP record.
         updated: { type: integer }
-        skipped:
-          type: array
-          description: SAP records that could not be placed at a site.
-          items:
-            type: object
-            properties:
-              assetNo: { type: string }
-              reason: { type: string }
+        queued:
+          type: integer
+          description: Records that could not be placed, now awaiting a human.
+
+    ReconciliationItem:
+      type: object
+      properties:
+        id: { type: string }
+        sapAssetNo: { type: string }
+        sapRecord:
+          type: object
+          description: The full SAP record, so a human can decide without re-querying SAP.
+        reason:
+          type: string
+          enum: [NO_MATCH, UNKNOWN_COST_CENTRE, CONFLICTING_LINK]
+        status:
+          type: string
+          enum: [OPEN, RESOLVED, DISMISSED]
+        firstSeenAt: { type: string, format: date-time }
+        lastSeenAt:
+          type: string
+          format: date-time
+          description: Bumped by each sync that still cannot place it. Age matters more than count.

@@ -67,6 +67,13 @@ model Asset {
   /// Who currently holds the asset (RFP 2.6.4 "user"). Resolves to a User in Phase 1.
   custodianId String?
 
+  /// An IN_USE/IDLE assertion made by a human at the asset, with the moment it was made.
+  /// Beats telemetry until `scanAssertedAt` ages past the TTL, then telemetry resumes
+  /// automatically (ADR-0010). Null when no scan has asserted a contested status.
+  /// Administrative statuses are NOT held here — they are sticky and live in `status`.
+  scanAssertedStatus AssetStatus?
+  scanAssertedAt     DateTime?
+
   /// Most recent observation of any kind. Null = never observed by any connector.
   lastSeenAt DateTime?
   /// Most recent moment the asset is known to have been actively USED (as opposed to
@@ -89,10 +96,88 @@ model Asset {
   signals   SignalEvent[]
   snapshots UtilisationSnapshot[]
   locations LocationHistory[]
+  conflicts ConflictAlert[]
 
   @@index([siteId, status])
   @@index([status, idleSince])
   @@map("asset")
+}
+
+/// An SAP asset master record the sync could not confidently match to an OAT asset.
+///
+/// Queued for a human rather than auto-created: SAP knowing about an asset is not evidence
+/// that anyone tagged it, and a sync that can invent register rows can poison the register
+/// unattended at 2am. See ADR-0009.
+model ReconciliationItem {
+  id String @id @default(cuid())
+
+  /// The SAP asset number that could not be placed.
+  sapAssetNo String @unique
+  /// The full SAP record, so a human can decide without re-querying SAP.
+  sapRecord  Json
+  reason     ReconciliationReason
+  status     ReconciliationStatus @default(OPEN)
+
+  /// Set when resolved by linking to an existing asset.
+  resolvedAssetId String?
+  resolvedBy      String?
+  resolvedAt      DateTime?
+  /// Why it was dismissed, when it was.
+  note            String?
+
+  firstSeenAt DateTime @default(now())
+  /// Bumped by each sync that still cannot place the record. Age matters more than count:
+  /// an item open for weeks is the thing worth alerting on (ADR-0009).
+  lastSeenAt  DateTime @updatedAt
+
+  @@index([status, firstSeenAt])
+  @@map("reconciliation_item")
+}
+
+enum ReconciliationReason {
+  /// No tag, serial, or existing link matched.
+  NO_MATCH
+  /// The SAP record's cost centre maps to no known site.
+  UNKNOWN_COST_CENTRE
+  /// Serial matched an asset already linked to a DIFFERENT SAP asset number.
+  CONFLICTING_LINK
+}
+
+enum ReconciliationStatus {
+  OPEN
+  RESOLVED
+  DISMISSED
+}
+
+/// A sustained disagreement between a human scan and telemetry (ADR-0010).
+///
+/// A single disagreement is just the world changing and is not recorded. Sustained conflict
+/// means the scan was wrong, the device is misconfigured, or the asset ref points at the
+/// wrong machine — all worth knowing, none visible from either source alone.
+model ConflictAlert {
+  id      String @id @default(cuid())
+  assetId String
+  asset   Asset  @relation(fields: [assetId], references: [id], onDelete: Cascade)
+
+  /// What the human asserted, and what telemetry keeps insisting.
+  scanStatus      AssetStatus
+  telemetryStatus AssetStatus
+  scanAssertedAt  DateTime
+  /// How long telemetry has been contradicting the scan.
+  sustainedMinutes Int
+
+  status      ConflictStatus @default(OPEN)
+  detectedAt  DateTime       @default(now())
+  resolvedAt  DateTime?
+
+  @@index([status, detectedAt])
+  @@index([assetId, status])
+  @@map("conflict_alert")
+}
+
+enum ConflictStatus {
+  OPEN
+  RESOLVED
 }
 
 /// An immutable observation from a connector. Append-only: never updated, never deleted
@@ -158,6 +243,62 @@ model LocationHistory {
 
   @@index([assetId, movedAt])
   @@map("location_history")
+}
+
+/// Roles per RFP Appendix F.
+///
+/// A closed enum rather than free-text or a join table: the role set is defined by the RFP,
+/// not by runtime configuration, and permissions are compiled into `packages/auth`. Adding
+/// a role should be a reviewed code change, not an INSERT.
+enum Role {
+  /// Finance: asset register, disposal/impairment approval. Read-only on operations.
+  FINANCE
+  /// Purchasing: acquisition and vendor detail.
+  PURCHASING
+  /// Branch: their own site's assets. Scan, move, assign.
+  BRANCH
+  /// HQ Lab Manager: all sites, utilisation and idle reporting, idle policy.
+  HQ_LAB_MANAGER
+  /// IT: connectors, integrations, system configuration.
+  IT
+  /// Developer: full access, including the reconciliation queue.
+  DEVELOPER
+}
+
+/// An OAT user.
+///
+/// Local credentials in Phase 1 with a clean seam to OIDC/SAML (SAP IAS) later — hence the
+/// nullable `passwordHash` and the `externalId`, which an IdP-issued subject will populate
+/// when Lablink's IAS tenant exists. See ADR-0011.
+model User {
+  id    String @id @default(cuid())
+  email String @unique
+  name  String
+
+  /// Argon2id hash. Null for users provisioned by an external IdP, who never have one.
+  passwordHash String?
+  /// Stable subject claim from the IdP. Null until federated.
+  externalId   String? @unique
+
+  roles Role[]
+
+  /// Scopes a BRANCH user to their site. Null for HQ/Finance/IT roles, who span sites.
+  siteId String?
+
+  active Boolean @default(true)
+
+  /// Bumped to invalidate every outstanding token for this user.
+  ///
+  /// Auth.js issues stateless JWTs with the Credentials provider, which cannot be withdrawn
+  /// before they expire. Checking this (and `active`) on each request restores revocation:
+  /// bump it and the user's existing tokens stop being honoured. See ADR-0011.
+  tokenVersion Int @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([email])
+  @@map("user")
 }
 
 /// Audit trail over every mutation (RFP 1.41). Append-only.

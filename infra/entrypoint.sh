@@ -13,7 +13,7 @@ if [ "${OAT_SEED_ON_START:-0}" = "1" ]; then
   # Off by default. Demo convenience only — a production container must never
   # invent asset data on boot.
   echo "Seeding demo data (OAT_SEED_ON_START=1)..."
-  pnpm --filter @oat/db seed
+  pnpm --filter @oat/seed seed
 fi
 
 echo "Starting OAT..."

@@ -1,4 +1,4 @@
-import { PrismaClient } from '@prisma/client'
+import { PrismaClient } from '@oat/db'
 
 /**
  * Truncate operational data, leaving the schema alone.

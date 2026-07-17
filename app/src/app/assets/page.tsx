@@ -1,3 +1,5 @@
+import { requirePermission } from '@/lib/page-auth'
+import { scopeToSite } from '@oat/auth'
 import { listAssets } from '@oat/core'
 import { prisma } from '@oat/db'
 import Link from 'next/link'
@@ -20,14 +22,24 @@ function parseStatus(value: string | undefined) {
 }
 
 export default async function AssetsPage({ searchParams }: { searchParams: Promise<SearchParams> }) {
+  const principal = await requirePermission('asset:read', '/assets')
+
   const params = await searchParams
   const status = parseStatus(params.status)
 
-  const assets = await listAssets(prisma, {
-    ...(params.site ? { siteId: params.site } : {}),
-    ...(status ? { status } : {}),
-    ...(params.q ? { query: params.q } : {}),
-  })
+  // Site scoping narrows the query rather than filtering afterwards: a query that never
+  // selects another site's rows cannot leak them.
+  const scope = scopeToSite(principal)
+  const siteId = scope.kind === 'site' ? scope.siteId : (params.site ?? undefined)
+
+  const assets =
+    scope.kind === 'none'
+      ? []
+      : await listAssets(prisma, {
+          ...(siteId ? { siteId } : {}),
+          ...(status ? { status } : {}),
+          ...(params.q ? { query: params.q } : {}),
+        })
 
   const now = new Date()
 

@@ -1,10 +1,10 @@
 import { describe, expect, it } from 'vitest'
 import { idleMinutes, project, type AssetProjection } from './idle-engine'
-import { DEFAULT_IDLE_POLICY } from './idle-policy'
+import { DEFAULT_ENGINE_POLICY, resolveEnginePolicy, type EnginePolicy } from './idle-policy'
 import type { SignalInput } from './signals'
 
 const NOW = new Date('2026-07-16T12:00:00Z')
-const policy = DEFAULT_IDLE_POLICY
+const policy = DEFAULT_ENGINE_POLICY
 
 function minutesBefore(n: number): Date {
   return new Date(NOW.getTime() - n * 60_000)
@@ -15,254 +15,386 @@ const fresh: AssetProjection = {
   idleSince: null,
   lastSeenAt: null,
   lastActiveAt: null,
+  scanAssertedStatus: null,
+  scanAssertedAt: null,
 }
 
 function signal(partial: Partial<SignalInput> & Pick<SignalInput, 'type' | 'value' | 'observedAt'>): SignalInput {
   return { assetId: 'a1', source: 'soti', ...partial }
 }
 
-describe('project', () => {
-  it('flips an asset to IDLE once quiet time passes its class threshold', () => {
-    // IT threshold is 30 minutes; last busy 45 minutes ago.
-    const result = project({
-      assetClass: 'IT',
-      current: fresh,
+/** An IT-class asset: threshold 30 min, activity from osquery/soti. */
+function projectIt(input: { current?: AssetProjection; signals?: SignalInput[]; now?: Date; policy?: EnginePolicy }) {
+  return project({
+    assetClass: 'IT',
+    current: input.current ?? fresh,
+    signals: input.signals ?? [],
+    now: input.now ?? NOW,
+    policy: input.policy ?? policy,
+  })
+}
+
+describe('idle thresholds', () => {
+  it('flips to IDLE once quiet time passes the class threshold', () => {
+    const { projection } = projectIt({
       signals: [signal({ type: 'utilisation', value: { busy: true }, observedAt: minutesBefore(45) })],
-      now: NOW,
-      policy,
     })
 
-    expect(result.status).toBe('IDLE')
-    expect(result.idleSince).toEqual(minutesBefore(45))
+    expect(projection.status).toBe('IDLE')
+    expect(projection.idleSince).toEqual(minutesBefore(45))
   })
 
-  it('keeps an asset IN_USE while quiet time is under the threshold', () => {
-    const result = project({
-      assetClass: 'IT',
-      current: fresh,
+  it('stays IN_USE while quiet time is under the threshold', () => {
+    const { projection } = projectIt({
       signals: [signal({ type: 'utilisation', value: { busy: true }, observedAt: minutesBefore(10) })],
-      now: NOW,
-      policy,
     })
 
-    expect(result.status).toBe('IN_USE')
-    expect(result.idleSince).toBeNull()
+    expect(projection.status).toBe('IN_USE')
+    expect(projection.idleSince).toBeNull()
   })
 
   it('applies the threshold for the asset class, not a global one', () => {
-    // 150 minutes quiet: idle for IT (30) but not for a printer (240).
-    const signals = [signal({ type: 'utilisation', value: { busy: true }, observedAt: minutesBefore(150) })]
+    // 150 minutes quiet: idle for IT (30), not for a printer (240). Each source is on its
+    // own class's activity list.
+    const itSignals = [
+      signal({ source: 'soti', type: 'utilisation', value: { busy: true }, observedAt: minutesBefore(150) }),
+    ]
+    const printerSignals = [
+      signal({ source: 'snmp', type: 'utilisation', value: { busy: true }, observedAt: minutesBefore(150) }),
+    ]
 
-    expect(project({ assetClass: 'IT', current: fresh, signals, now: NOW, policy }).status).toBe('IDLE')
-    expect(project({ assetClass: 'PRINTER', current: fresh, signals, now: NOW, policy }).status).toBe('IN_USE')
+    expect(project({ assetClass: 'IT', current: fresh, signals: itSignals, now: NOW, policy }).projection.status).toBe(
+      'IDLE',
+    )
+    expect(
+      project({ assetClass: 'PRINTER', current: fresh, signals: printerSignals, now: NOW, policy }).projection.status,
+    ).toBe('IN_USE')
   })
 
-  it('flips back to IN_USE when fresh activity arrives', () => {
+  it('honours a per-class threshold override from config', () => {
+    const relaxed = resolveEnginePolicy({ idleOverrides: { IT: 90 } })
+    const signals = [signal({ type: 'utilisation', value: { busy: true }, observedAt: minutesBefore(45) })]
+
+    expect(projectIt({ signals }).projection.status).toBe('IDLE')
+    expect(projectIt({ signals, policy: relaxed }).projection.status).toBe('IN_USE')
+  })
+
+  it('dates idleness from when the asset went quiet, not from when we were told', () => {
+    // An MDM reconnects after an outage and reports 90 minutes of accumulated idleness.
+    const { projection } = projectIt({
+      signals: [signal({ type: 'idle', value: { idleMinutes: 90 }, observedAt: minutesBefore(10) })],
+    })
+
+    expect(projection.idleSince).toEqual(minutesBefore(100))
+    expect(idleMinutes(projection, NOW)).toBe(100)
+  })
+
+  it('is order-independent and idempotent', () => {
+    const stale = signal({ type: 'idle', value: { idleMinutes: 60 }, observedAt: minutesBefore(120) })
+    const recent = signal({ type: 'utilisation', value: { busy: true }, observedAt: minutesBefore(5) })
+
+    const a = projectIt({ signals: [stale, recent] }).projection
+    const b = projectIt({ signals: [recent, stale] }).projection
+    expect(a).toEqual(b)
+    expect(a.status).toBe('IN_USE')
+
+    // Replaying the same batch over the result changes nothing.
+    expect(projectIt({ current: a, signals: [stale, recent] }).projection).toEqual(a)
+  })
+
+  it('ages into IDLE on an empty sweep, using the persisted lastActiveAt', () => {
+    const active: AssetProjection = { ...fresh, lastSeenAt: minutesBefore(40), lastActiveAt: minutesBefore(40) }
+
+    expect(projectIt({ current: active }).projection.status).toBe('IDLE')
+  })
+})
+
+/** ADR-0008: only a class's declared sources may evidence activity. */
+describe('activity sources', () => {
+  it('does not let a heartbeat evidence use, for any class', () => {
+    const { projection } = projectIt({
+      signals: [signal({ type: 'heartbeat', value: {}, observedAt: minutesBefore(3) })],
+    })
+
+    expect(projection.lastSeenAt).toEqual(minutesBefore(3))
+    expect(projection.lastActiveAt).toBeNull()
+  })
+
+  it('ignores an SNMP reachability claim on a lab instrument', () => {
+    // The failure this rule exists to prevent: an analyser idle overnight still answers
+    // SNMP. If that counted as use, every instrument would show ~100% utilisation forever.
+    const { projection } = project({
+      assetClass: 'LAB_INSTRUMENT',
+      current: fresh,
+      signals: [signal({ source: 'snmp', type: 'utilisation', value: { busy: true }, observedAt: minutesBefore(5) })],
+      now: NOW,
+      policy,
+    })
+
+    expect(projection.lastActiveAt).toBeNull()
+    // And it still records that we heard from the device.
+    expect(projection.lastSeenAt).toEqual(minutesBefore(5))
+  })
+
+  it('accepts LIS activity on a lab instrument', () => {
+    const { projection } = project({
+      assetClass: 'LAB_INSTRUMENT',
+      current: fresh,
+      signals: [signal({ source: 'lis', type: 'utilisation', value: { busy: true }, observedAt: minutesBefore(5) })],
+      now: NOW,
+      policy,
+    })
+
+    expect(projection.lastActiveAt).toEqual(minutesBefore(5))
+    expect(projection.status).toBe('IN_USE')
+  })
+
+  it('reports unknown rather than idle for an instrument with no LIS connector', () => {
+    // Honest-by-default: before the LIS is wired, instruments show no utilisation rather
+    // than a fabricated one.
+    const { projection } = project({
+      assetClass: 'LAB_INSTRUMENT',
+      current: fresh,
+      signals: [signal({ source: 'snmp', type: 'heartbeat', value: {}, observedAt: minutesBefore(600) })],
+      now: NOW,
+      policy,
+    })
+
+    expect(projection.status).toBe('IN_USE')
+    expect(projection.idleSince).toBeNull()
+    expect(projection.lastActiveAt).toBeNull()
+  })
+
+  it('never idles a reusable component, which has no automated activity source', () => {
+    const { projection } = project({
+      assetClass: 'REUSABLE_COMPONENT',
+      current: fresh,
+      signals: [signal({ source: 'scan', type: 'heartbeat', value: {}, observedAt: minutesBefore(5000) })],
+      now: NOW,
+      policy,
+    })
+
+    // A rack on a shelf is stored, not idle.
+    expect(projection.status).toBe('IN_USE')
+  })
+})
+
+/** ADR-0010: scan and telemetry own different facts. */
+describe('scan and telemetry precedence', () => {
+  const scanIdle = (at: number) =>
+    signal({ source: 'scan', type: 'status', value: { status: 'IDLE' }, observedAt: minutesBefore(at) })
+  const scanInUse = (at: number) =>
+    signal({ source: 'scan', type: 'status', value: { status: 'IN_USE' }, observedAt: minutesBefore(at) })
+
+  it('lets a fresh scan of IN_USE beat telemetry saying idle', () => {
+    const { projection } = projectIt({
+      signals: [signal({ type: 'idle', value: { idleMinutes: 200 }, observedAt: minutesBefore(1) }), scanInUse(5)],
+    })
+
+    expect(projection.status).toBe('IN_USE')
+    expect(projection.scanAssertedStatus).toBe('IN_USE')
+  })
+
+  it('lets telemetry resume once the scan TTL expires', () => {
+    // The same assertion, now 13 hours old — past the 12h TTL.
+    const { projection } = projectIt({
+      current: { ...fresh, scanAssertedStatus: 'IN_USE', scanAssertedAt: minutesBefore(13 * 60) },
+      signals: [signal({ type: 'idle', value: { idleMinutes: 200 }, observedAt: minutesBefore(1) })],
+    })
+
+    expect(projection.status).toBe('IDLE')
+    // The expired assertion is cleared, not left to confuse the next projection.
+    expect(projection.scanAssertedStatus).toBeNull()
+  })
+
+  it('holds the scan right up to the TTL boundary', () => {
+    const { projection } = projectIt({
+      current: { ...fresh, scanAssertedStatus: 'IN_USE', scanAssertedAt: minutesBefore(11 * 60 + 59) },
+      signals: [signal({ type: 'idle', value: { idleMinutes: 200 }, observedAt: minutesBefore(1) })],
+    })
+
+    expect(projection.status).toBe('IN_USE')
+  })
+
+  it('self-heals at the TTL with no new signals at all', () => {
+    // The sweep passes an empty batch: status changes purely because the TTL expired.
+    const { projection } = projectIt({
+      current: {
+        ...fresh,
+        status: 'IN_USE',
+        lastActiveAt: minutesBefore(20 * 60),
+        scanAssertedStatus: 'IN_USE',
+        scanAssertedAt: minutesBefore(13 * 60),
+      },
+    })
+
+    expect(projection.status).toBe('IDLE')
+  })
+
+  it('honours a configured TTL', () => {
+    const shortTtl = resolveEnginePolicy({ scanTtlMinutes: 60 })
+
+    const { projection } = projectIt({
+      current: { ...fresh, scanAssertedStatus: 'IN_USE', scanAssertedAt: minutesBefore(90) },
+      signals: [signal({ type: 'idle', value: { idleMinutes: 200 }, observedAt: minutesBefore(1) })],
+      policy: shortTtl,
+    })
+
+    expect(projection.status).toBe('IDLE')
+  })
+
+  it('dates the idle run from a scan asserting IDLE', () => {
+    const { projection } = projectIt({ signals: [scanIdle(30)] })
+
+    expect(projection.status).toBe('IDLE')
+    expect(projection.idleSince).toEqual(minutesBefore(30))
+  })
+
+  it('ignores a telemetry attempt to assert a contested status', () => {
+    // Only a human may assert IN_USE/IDLE directly; telemetry speaks through idle/utilisation.
+    const { projection } = projectIt({
+      signals: [signal({ source: 'soti', type: 'status', value: { status: 'IN_USE' }, observedAt: minutesBefore(1) })],
+    })
+
+    expect(projection.scanAssertedStatus).toBeNull()
+  })
+
+  describe('administrative statuses are sticky', () => {
+    const underRepair: AssetProjection = {
+      ...fresh,
+      status: 'UNDER_REPAIR',
+      lastSeenAt: minutesBefore(300),
+      lastActiveAt: minutesBefore(300),
+    }
+
+    it('does not let telemetry resurrect an asset under repair', () => {
+      const { projection } = projectIt({
+        current: underRepair,
+        signals: [signal({ type: 'utilisation', value: { busy: true }, observedAt: minutesBefore(1) })],
+      })
+
+      expect(projection.status).toBe('UNDER_REPAIR')
+    })
+
+    it('has no TTL — it stays under repair indefinitely', () => {
+      // Unlike a contested assertion this must not expire: an unrepaired analyser silently
+      // rejoining the pool is a different order of harm from a stale dashboard.
+      const { projection } = projectIt({
+        current: { ...underRepair, lastSeenAt: minutesBefore(90 * 24 * 60) },
+        now: new Date(NOW.getTime() + 90 * 24 * 60 * 60_000),
+      })
+
+      expect(projection.status).toBe('UNDER_REPAIR')
+    })
+
+    it('still tracks lastSeenAt while under repair', () => {
+      const { projection } = projectIt({
+        current: underRepair,
+        signals: [signal({ type: 'heartbeat', value: {}, observedAt: minutesBefore(1) })],
+      })
+
+      expect(projection.lastSeenAt).toEqual(minutesBefore(1))
+    })
+
+    it('lets a human scan clear it', () => {
+      const { projection } = projectIt({
+        current: underRepair,
+        signals: [scanInUse(1), signal({ type: 'utilisation', value: { busy: true }, observedAt: minutesBefore(1) })],
+      })
+
+      expect(projection.status).toBe('IN_USE')
+    })
+
+    it('lets a scan assert UNDER_REPAIR over live telemetry', () => {
+      const { projection } = projectIt({
+        signals: [
+          signal({ type: 'utilisation', value: { busy: true }, observedAt: minutesBefore(1) }),
+          signal({ source: 'scan', type: 'status', value: { status: 'UNDER_REPAIR' }, observedAt: minutesBefore(2) }),
+        ],
+      })
+
+      expect(projection.status).toBe('UNDER_REPAIR')
+      expect(projection.idleSince).toBeNull()
+    })
+
+    it('ignores a telemetry attempt to set an administrative status', () => {
+      // A device must never be able to declare itself retired.
+      const { projection } = projectIt({
+        signals: [
+          signal({ source: 'soti', type: 'status', value: { status: 'RETIRED' }, observedAt: minutesBefore(1) }),
+        ],
+      })
+
+      expect(projection.status).not.toBe('RETIRED')
+    })
+  })
+
+  describe('conflict detection', () => {
+    it('reports sustained telemetry disagreement with a live scan', () => {
+      const { projection, conflict } = projectIt({
+        current: { ...fresh, scanAssertedStatus: 'IN_USE', scanAssertedAt: minutesBefore(180) },
+        signals: [signal({ type: 'idle', value: { idleMinutes: 300 }, observedAt: minutesBefore(1) })],
+      })
+
+      // The scan still wins — the conflict is diagnostic output, not a veto.
+      expect(projection.status).toBe('IN_USE')
+      expect(conflict).toMatchObject({ scanStatus: 'IN_USE', telemetryStatus: 'IDLE', sustainedMinutes: 180 })
+    })
+
+    it('does not report a brief disagreement', () => {
+      // A scan at 09:00 and an idle report at 09:05 is the world changing, not a fault.
+      const { conflict } = projectIt({
+        current: { ...fresh, scanAssertedStatus: 'IN_USE', scanAssertedAt: minutesBefore(5) },
+        signals: [signal({ type: 'idle', value: { idleMinutes: 300 }, observedAt: minutesBefore(1) })],
+      })
+
+      expect(conflict).toBeNull()
+    })
+
+    it('reports no conflict when scan and telemetry agree', () => {
+      const { conflict } = projectIt({
+        current: { ...fresh, scanAssertedStatus: 'IN_USE', scanAssertedAt: minutesBefore(180) },
+        signals: [signal({ type: 'utilisation', value: { busy: true }, observedAt: minutesBefore(1) })],
+      })
+
+      expect(conflict).toBeNull()
+    })
+  })
+})
+
+describe('robustness', () => {
+  it('drops a malformed signal without losing the rest of the batch', () => {
+    const { projection } = projectIt({
+      signals: [
+        signal({ type: 'idle', value: { idleMinutes: 'not-a-number' }, observedAt: minutesBefore(2) }),
+        signal({ type: 'utilisation', value: { busy: true }, observedAt: minutesBefore(5) }),
+      ],
+    })
+
+    expect(projection.status).toBe('IN_USE')
+    // The malformed signal still counts as presence — we did hear from the asset.
+    expect(projection.lastSeenAt).toEqual(minutesBefore(2))
+  })
+
+  it('treats a location fix as presence, not use', () => {
     const idled: AssetProjection = {
+      ...fresh,
       status: 'IDLE',
       idleSince: minutesBefore(200),
       lastSeenAt: minutesBefore(200),
       lastActiveAt: minutesBefore(200),
     }
 
-    const result = project({
-      assetClass: 'IT',
+    const { projection } = projectIt({
       current: idled,
-      signals: [signal({ type: 'utilisation', value: { busy: true }, observedAt: minutesBefore(5) })],
-      now: NOW,
-      policy,
-    })
-
-    expect(result.status).toBe('IN_USE')
-    expect(result.idleSince).toBeNull()
-  })
-
-  it('dates idleness from when the asset went quiet, not from when we were told', () => {
-    // An MDM reconnects after an outage and reports 90 minutes of accumulated idleness.
-    // The idle run started 90 minutes before the observation, not at the observation.
-    const observedAt = minutesBefore(10)
-    const result = project({
-      assetClass: 'IT',
-      current: fresh,
-      signals: [signal({ type: 'idle', value: { idleMinutes: 90 }, observedAt })],
-      now: NOW,
-      policy,
-    })
-
-    expect(result.status).toBe('IDLE')
-    expect(result.idleSince).toEqual(minutesBefore(100))
-    expect(idleMinutes(result, NOW)).toBe(100)
-  })
-
-  it('is order-independent — a late-arriving stale signal cannot undo newer activity', () => {
-    const stale = signal({ type: 'idle', value: { idleMinutes: 60 }, observedAt: minutesBefore(120) })
-    const recent = signal({ type: 'utilisation', value: { busy: true }, observedAt: minutesBefore(5) })
-
-    const inOrder = project({ assetClass: 'IT', current: fresh, signals: [stale, recent], now: NOW, policy })
-    const reversed = project({ assetClass: 'IT', current: fresh, signals: [recent, stale], now: NOW, policy })
-
-    expect(inOrder).toEqual(reversed)
-    expect(inOrder.status).toBe('IN_USE')
-  })
-
-  it('is idempotent — replaying the same batch changes nothing', () => {
-    const signals = [signal({ type: 'utilisation', value: { busy: true }, observedAt: minutesBefore(45) })]
-
-    const once = project({ assetClass: 'IT', current: fresh, signals, now: NOW, policy })
-    const twice = project({ assetClass: 'IT', current: once, signals, now: NOW, policy })
-
-    expect(twice).toEqual(once)
-  })
-
-  it('ages an asset into IDLE on an empty sweep, using the persisted lastActiveAt', () => {
-    // The periodic sweep passes no signals. Without a persisted lastActiveAt the engine
-    // would have no baseline and this asset would stay IN_USE forever.
-    const active: AssetProjection = {
-      status: 'IN_USE',
-      idleSince: null,
-      lastSeenAt: minutesBefore(40),
-      lastActiveAt: minutesBefore(40),
-    }
-
-    const result = project({ assetClass: 'IT', current: active, signals: [], now: NOW, policy })
-
-    expect(result.status).toBe('IDLE')
-    expect(result.idleSince).toEqual(minutesBefore(40))
-  })
-
-  describe('administrative statuses', () => {
-    const underRepair: AssetProjection = {
-      status: 'UNDER_REPAIR',
-      idleSince: null,
-      lastSeenAt: minutesBefore(300),
-      lastActiveAt: minutesBefore(300),
-    }
-
-    it('does not let telemetry resurrect an asset that is under repair', () => {
-      // A machine on the repair bench still emits heartbeats and may still look "busy".
-      const result = project({
-        assetClass: 'IT',
-        current: underRepair,
-        signals: [signal({ type: 'utilisation', value: { busy: true }, observedAt: minutesBefore(1) })],
-        now: NOW,
-        policy,
-      })
-
-      expect(result.status).toBe('UNDER_REPAIR')
-    })
-
-    it('still tracks lastSeenAt for an asset under repair', () => {
-      const result = project({
-        assetClass: 'IT',
-        current: underRepair,
-        signals: [signal({ type: 'heartbeat', value: {}, observedAt: minutesBefore(1) })],
-        now: NOW,
-        policy,
-      })
-
-      expect(result.lastSeenAt).toEqual(minutesBefore(1))
-    })
-
-    it('lets an explicit status signal move an asset out of repair', () => {
-      const result = project({
-        assetClass: 'IT',
-        current: underRepair,
-        signals: [
-          signal({ source: 'scan', type: 'status', value: { status: 'IN_USE' }, observedAt: minutesBefore(1) }),
-          signal({ type: 'utilisation', value: { busy: true }, observedAt: minutesBefore(1) }),
-        ],
-        now: NOW,
-        policy,
-      })
-
-      expect(result.status).toBe('IN_USE')
-    })
-
-    it('lets an operator scan assert UNDER_REPAIR over live telemetry', () => {
-      const result = project({
-        assetClass: 'IT',
-        current: fresh,
-        signals: [
-          signal({ type: 'utilisation', value: { busy: true }, observedAt: minutesBefore(1) }),
-          signal({ source: 'scan', type: 'status', value: { status: 'UNDER_REPAIR' }, observedAt: minutesBefore(2) }),
-        ],
-        now: NOW,
-        policy,
-      })
-
-      expect(result.status).toBe('UNDER_REPAIR')
-      expect(result.idleSince).toBeNull()
-    })
-  })
-
-  describe('absence of evidence', () => {
-    it('does not conclude IDLE for an asset no connector has ever reported activity for', () => {
-      // Graceful degradation: with connectors disabled, every asset would otherwise be
-      // libelled as idle the moment the threshold elapsed.
-      const result = project({
-        assetClass: 'IT',
-        current: fresh,
-        signals: [signal({ type: 'heartbeat', value: {}, observedAt: minutesBefore(600) })],
-        now: NOW,
-        policy,
-      })
-
-      expect(result.status).toBe('IN_USE')
-      expect(result.idleSince).toBeNull()
-    })
-
-    it('treats a heartbeat as presence, not use', () => {
-      const result = project({
-        assetClass: 'IT',
-        current: fresh,
-        signals: [signal({ type: 'heartbeat', value: {}, observedAt: minutesBefore(3) })],
-        now: NOW,
-        policy,
-      })
-
-      expect(result.lastSeenAt).toEqual(minutesBefore(3))
-      expect(result.lastActiveAt).toBeNull()
-    })
-
-    it('treats a location fix as presence, not use', () => {
-      const idled: AssetProjection = {
-        status: 'IDLE',
-        idleSince: minutesBefore(200),
-        lastSeenAt: minutesBefore(200),
-        lastActiveAt: minutesBefore(200),
-      }
-
-      // An inventory sweep walking past a shelved asset must not make it look used.
-      const result = project({
-        assetClass: 'IT',
-        current: idled,
-        signals: [
-          signal({ source: 'scan', type: 'location', value: { location: 'Bench 3' }, observedAt: minutesBefore(1) }),
-        ],
-        now: NOW,
-        policy,
-      })
-
-      expect(result.status).toBe('IDLE')
-      expect(result.idleSince).toEqual(minutesBefore(200))
-    })
-  })
-
-  it('drops a malformed signal without losing the rest of the batch', () => {
-    const result = project({
-      assetClass: 'IT',
-      current: fresh,
       signals: [
-        signal({ type: 'idle', value: { idleMinutes: 'not-a-number' }, observedAt: minutesBefore(2) }),
-        signal({ type: 'utilisation', value: { busy: true }, observedAt: minutesBefore(5) }),
+        signal({ source: 'scan', type: 'location', value: { location: 'Bench 3' }, observedAt: minutesBefore(1) }),
       ],
-      now: NOW,
-      policy,
     })
 
-    expect(result.status).toBe('IN_USE')
-    // The malformed signal still counts as presence — we did hear from the asset.
-    expect(result.lastSeenAt).toEqual(minutesBefore(2))
+    // An inventory sweep walking past a shelved asset must not make it look used.
+    expect(projection.status).toBe('IDLE')
+    expect(projection.idleSince).toEqual(minutesBefore(200))
   })
 })
 

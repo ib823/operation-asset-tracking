@@ -4,14 +4,28 @@
     "lib": ["ES2022", "DOM", "DOM.Iterable"],
     "jsx": "preserve",
     "allowJs": true,
-    "noEmit": true,
-    "composite": true,
     "incremental": true,
     "moduleResolution": "Bundler",
     "plugins": [{ "name": "next" }],
     "paths": {
       "@/*": ["./src/*"]
-    }
+    },
+
+    // The app is a LEAF: Next compiles it, and no other package imports from it. So unlike
+    // packages/*, it is not a composite project and emits nothing.
+    //
+    // This is deliberate, not an oversight. With `composite`/`declaration` inherited from
+    // tsconfig.base, TypeScript must be able to *name* every inferred exported type in a
+    // .d.ts — and under pnpm's symlinked node_modules, Auth.js's inferred `auth`/`signIn`
+    // types resolve through `.pnpm/...` paths it refuses to emit (TS2742). We emit no
+    // declarations here, so that check buys nothing and only breaks the build.
+    //
+    // Typechecked via `tsc -p app --noEmit` rather than `tsc --build` (see the root
+    // `typecheck` script), because a non-composite project cannot be a build-graph member.
+    "noEmit": true,
+    "composite": false,
+    "declaration": false,
+    "declarationMap": false
   },
   "include": ["next-env.d.ts", "**/*.ts", "**/*.tsx", ".next/types/**/*.ts"],
   "exclude": ["node_modules"],
@@ -19,6 +33,7 @@
     { "path": "../packages/db" },
     { "path": "../packages/core" },
     { "path": "../packages/sap" },
-    { "path": "../packages/connectors" }
+    { "path": "../packages/connectors" },
+    { "path": "../packages/auth" }
   ]
 }

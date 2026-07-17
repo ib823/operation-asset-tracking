@@ -5,9 +5,14 @@ node_modules
 dist
 **/dist
 .git
-.env
-.env.*
-!.env.example
+
+# Secrets. `.env` alone matches only the repo root — a nested packages/db/.env was found
+# baked into a built image, which is exactly how a real credential reaches a client.
+# `**/.env*` matches at any depth; the negation keeps the committed example.
+**/.env
+**/.env.*
+!**/.env.example
+
 test-results
 playwright-report
 coverage

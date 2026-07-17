@@ -1,11 +1,18 @@
 import type { AssetClass, AssetStatus } from '@oat/db'
-import { idleThresholdMinutes, type IdlePolicy } from './idle-policy'
-import { parseSignalValue, type SignalInput, type SignalType } from './signals'
+import { classPolicy, isActivitySource, type EnginePolicy } from './idle-policy'
+import { parseSignalValue, type SignalInput, type SignalSource, type SignalType } from './signals'
 
 /**
- * The derived operational state of an asset: a projection over its signal log, never
- * written directly by a connector (ADR-0006).
+ * The idle engine: a pure projection over the append-only signal log (ADR-0006), applying
+ * the scan/telemetry precedence rules of ADR-0010.
+ *
+ * Who owns which fact:
+ *
+ *   location / custodian / UNDER_REPAIR / RETIRED   scan (human) only
+ *   idle / utilisation                              telemetry only
+ *   IN_USE <-> IDLE                                 contested; scan wins for a TTL
  */
+
 export interface AssetProjection {
   status: AssetStatus
   /** Start of the current idle run — the moment the asset went quiet. Null when not idle. */
@@ -13,79 +20,115 @@ export interface AssetProjection {
   /** Most recent observation of any kind, including mere reachability. */
   lastSeenAt: Date | null
   /**
-   * Most recent moment the asset is known to have been actively used.
+   * Most recent moment the asset is known to have been actively USED.
    *
    * Persisted rather than derived from `idleSince`, because the engine also runs as a
-   * periodic sweep with an empty signal batch. An asset that is IN_USE has no `idleSince`,
-   * so without this the sweep would have no baseline to measure quiet time from and could
-   * never age it into IDLE.
+   * periodic sweep with an empty signal batch. An IN_USE asset has no `idleSince`, so
+   * without this the sweep would have no baseline and could never age it into IDLE.
    */
   lastActiveAt: Date | null
+  /** A human's contested-status assertion, and when it was made (ADR-0010). */
+  scanAssertedStatus: AssetStatus | null
+  scanAssertedAt: Date | null
+}
+
+/** A sustained disagreement between a fresh scan and telemetry. */
+export interface Conflict {
+  scanStatus: AssetStatus
+  telemetryStatus: AssetStatus
+  scanAssertedAt: Date
+  sustainedMinutes: number
+}
+
+export interface ProjectResult {
+  projection: AssetProjection
+  /**
+   * Set when telemetry has contradicted a live scan for long enough to be worth a human's
+   * attention. The scan still wins (that is the TTL rule); this is diagnostic output.
+   */
+  conflict: Conflict | null
 }
 
 export interface ProjectInput {
   assetClass: AssetClass
-  /** The asset's state before these signals. */
   current: AssetProjection
   /** Signals in any order — late and out-of-order arrival is normal. */
   signals: readonly SignalInput[]
   now: Date
-  policy: IdlePolicy
+  policy: EnginePolicy
 }
 
 /**
- * Statuses a human or authoritative system asserts, which telemetry must never overwrite.
+ * Statuses only a human may set or clear (ADR-0010).
  *
- * A centrifuge on a workbench awaiting repair still emits heartbeats. Without this, the
- * engine would cheerfully flip it back to IN_USE and the repair queue would empty itself.
- * Clearing one of these is an explicit act: a `status` signal saying so.
+ * Sticky, with no TTL. A machine on the repair bench still emits heartbeats and may look
+ * busy; it must not resurrect itself, and it must not resurrect itself quietly after twelve
+ * hours either. Deliberately asymmetric with the IN_USE/IDLE TTL: expiry is safe when the
+ * worst case is a stale dashboard, and unsafe when the worst case is an unrepaired analyser
+ * silently rejoining the pool.
  */
 const ADMINISTRATIVE: readonly AssetStatus[] = ['UNDER_REPAIR', 'RETIRED']
+
+/** The contested pair: the only place scan and telemetry answer the same question. */
+const CONTESTED: readonly AssetStatus[] = ['IN_USE', 'IDLE']
 
 function isAdministrative(status: AssetStatus): boolean {
   return ADMINISTRATIVE.includes(status)
 }
 
-const MINUTE_MS = 60_000
-
-/** What a signal tells us, once interpreted. */
-interface Evidence {
-  /** Latest moment the asset is known to have been actively used. */
-  activeAt: Date | null
-  /** An explicit status assertion. */
-  status: { value: AssetStatus; at: Date } | null
+function isContested(status: AssetStatus): boolean {
+  return CONTESTED.includes(status)
 }
 
-function interpret(type: SignalType, value: unknown, observedAt: Date): Evidence {
+const MINUTE_MS = 60_000
+
+/**
+ * How long telemetry must contradict a live scan before it is worth reporting.
+ *
+ * A single disagreement is just the world changing — a scan at 09:00 and an idle report at
+ * 09:05 means someone walked away, not that anything is wrong. Sustained disagreement means
+ * the scan was wrong, the device is misconfigured, or the asset ref maps to the wrong
+ * machine.
+ */
+const CONFLICT_SUSTAINED_MINUTES = 60
+
+interface Evidence {
+  activeAt: Date | null
+  status: { value: AssetStatus; at: Date; source: SignalSource } | null
+}
+
+const NO_EVIDENCE: Evidence = { activeAt: null, status: null }
+
+function interpret(type: SignalType, value: unknown, observedAt: Date, source: SignalSource): Evidence {
   switch (type) {
     case 'utilisation': {
       const { busy } = parseSignalValue('utilisation', value)
-      // `busy: false` is inactivity *now*, so it evidences no activity — the asset's idle
-      // run is measured from whenever it was last busy, which this signal doesn't tell us.
+      // `busy: false` is inactivity now; it does not say when the asset was last busy, so it
+      // contributes no activity timestamp rather than a misleading one.
       return { activeAt: busy ? observedAt : null, status: null }
     }
 
     case 'idle': {
       const { idleMinutes } = parseSignalValue('idle', value)
-      // The asset was last active `idleMinutes` before it was observed. This is what keeps
-      // a backlog flush after an MDM outage from reading as fresh idleness.
+      // Last active `idleMinutes` before observation. This is what stops an MDM flushing a
+      // backlog after an outage from reading as fresh idleness.
       return { activeAt: new Date(observedAt.getTime() - idleMinutes * MINUTE_MS), status: null }
     }
 
     case 'status': {
       const { status } = parseSignalValue('status', value)
-      return { activeAt: null, status: { value: status as AssetStatus, at: observedAt } }
+      return { activeAt: null, status: { value: status as AssetStatus, at: observedAt, source } }
     }
 
     case 'heartbeat':
-      // Reachable, not necessarily in use. Presence only — it moves lastSeenAt, nothing more.
-      return { activeAt: null, status: null }
+      // Reachability is presence, never use — for any class (ADR-0008). An instrument idle
+      // overnight answers pings all night.
+      return NO_EVIDENCE
 
     case 'location':
-      // A location fix means someone or something interacted with the asset. That is weak
-      // evidence of use, but treating it as activity would let a passive inventory sweep
-      // mask genuine idleness. Presence only.
-      return { activeAt: null, status: null }
+      // Someone interacted with the asset, but treating that as use would let a passive
+      // inventory sweep mask genuine idleness. Presence only.
+      return NO_EVIDENCE
   }
 }
 
@@ -95,72 +138,173 @@ function latest(a: Date | null, b: Date | null): Date | null {
   return a.getTime() >= b.getTime() ? a : b
 }
 
+/** What telemetry alone would conclude, ignoring any human assertion. */
+function telemetryVerdict(
+  lastActiveAt: Date | null,
+  now: Date,
+  thresholdMinutes: number,
+): { status: AssetStatus; idleSince: Date | null } | null {
+  // No activity evidence has ever reached us: an unmonitored asset, or one whose connector
+  // is not deployed. Concluding IDLE here would libel every asset at a site with no
+  // connectors — the graceful-degradation case — and would fabricate the very number the
+  // client relies on. Decline to conclude.
+  if (!lastActiveAt) return null
+
+  const quietMinutes = (now.getTime() - lastActiveAt.getTime()) / MINUTE_MS
+  return quietMinutes >= thresholdMinutes
+    ? { status: 'IDLE', idleSince: lastActiveAt }
+    : { status: 'IN_USE', idleSince: null }
+}
+
 /**
  * Derive an asset's operational state from its prior state plus a batch of signals.
  *
- * Pure: no I/O, no clock read (`now` is passed in). That is what makes it testable without
- * a database and re-runnable over history when the idle policy changes.
- *
- * The function is idempotent and order-independent — replaying the same signals in any
- * order yields the same projection — because it reduces signals to maxima rather than
- * folding state through them in sequence.
+ * Pure: no I/O, no clock read (`now` is passed in). Idempotent and order-independent — it
+ * reduces signals to maxima rather than folding state through them in sequence — which is
+ * what lets it be re-run over history when the idle policy changes.
  */
-export function project({ assetClass, current, signals, now, policy }: ProjectInput): AssetProjection {
+export function project({ assetClass, current, signals, now, policy }: ProjectInput): ProjectResult {
+  const { thresholdMinutes } = classPolicy(policy.idle, assetClass)
+
   let lastSeenAt = current.lastSeenAt
-  // Seed from the prior projection so a batch carrying no activity evidence — or an empty
-  // batch, as the periodic sweep passes — still knows when the asset was last used.
+  // Seed from the prior projection so a batch with no activity evidence — or an empty batch,
+  // as the sweep passes — still knows when the asset was last used.
   let lastActiveAt = current.lastActiveAt
-  let statusAssertion: { value: AssetStatus; at: Date } | null = null
+
+  let adminAssertion: { value: AssetStatus; at: Date } | null = null
+  let scanAssertion: { value: AssetStatus; at: Date } | null =
+    current.scanAssertedStatus && current.scanAssertedAt
+      ? { value: current.scanAssertedStatus, at: current.scanAssertedAt }
+      : null
 
   for (const signal of signals) {
     lastSeenAt = latest(lastSeenAt, signal.observedAt)
 
     let evidence: Evidence
     try {
-      evidence = interpret(signal.type, signal.value, signal.observedAt)
+      evidence = interpret(signal.type, signal.value, signal.observedAt, signal.source)
     } catch {
-      // A malformed signal is a connector bug, not a reason to stall the engine or lose the
-      // whole batch. It still counts as presence (lastSeenAt above); its claim is dropped.
+      // A malformed signal is a connector bug, not a reason to stall the engine or drop the
+      // batch. It still counts as presence; only its claim is discarded.
       continue
     }
 
-    lastActiveAt = latest(lastActiveAt, evidence.activeAt)
+    // ADR-0008: only sources this class trusts may evidence activity. Everything else is
+    // presence. This is what keeps an instrument's heartbeat from reading as utilisation.
+    if (evidence.activeAt && isActivitySource(policy.idle, assetClass, signal.source)) {
+      lastActiveAt = latest(lastActiveAt, evidence.activeAt)
+    }
 
-    if (evidence.status && (!statusAssertion || evidence.status.at >= statusAssertion.at)) {
-      statusAssertion = evidence.status
+    if (!evidence.status) continue
+
+    // ADR-0010: telemetry cannot set or clear an administrative status, and cannot assert a
+    // contested one. Only a human at the asset can.
+    if (evidence.status.source !== 'scan') continue
+
+    if (isAdministrative(evidence.status.value)) {
+      if (!adminAssertion || evidence.status.at >= adminAssertion.at) {
+        adminAssertion = { value: evidence.status.value, at: evidence.status.at }
+      }
+    } else if (isContested(evidence.status.value)) {
+      if (!scanAssertion || evidence.status.at >= scanAssertion.at) {
+        scanAssertion = { value: evidence.status.value, at: evidence.status.at }
+      }
     }
   }
 
-  // An explicit assertion wins over anything telemetry implies, whatever its timestamp
-  // relative to the telemetry: a human saying "this is under repair" is more authoritative
-  // than a device saying "I'm awake".
-  if (statusAssertion && isAdministrative(statusAssertion.value)) {
-    return { status: statusAssertion.value, idleSince: null, lastSeenAt, lastActiveAt }
+  const base = { lastSeenAt, lastActiveAt }
+
+  // A human moving the asset into an administrative status wins outright.
+  if (adminAssertion && isAdministrative(adminAssertion.value)) {
+    return {
+      projection: {
+        ...base,
+        status: adminAssertion.value,
+        idleSince: null,
+        scanAssertedStatus: null,
+        scanAssertedAt: null,
+      },
+      conflict: null,
+    }
   }
 
-  // An asset already parked in an administrative status stays there until a status signal
-  // moves it out. Telemetry keeps updating lastSeenAt, but cannot resurrect it.
-  if (isAdministrative(current.status) && !statusAssertion) {
-    return { status: current.status, idleSince: current.idleSince, lastSeenAt, lastActiveAt }
+  // Sticky: an asset already under repair or retired stays there until a human clears it.
+  // Telemetry keeps updating lastSeenAt but cannot move it.
+  const clearedByHuman = adminAssertion !== null || scanAssertion !== null
+  if (isAdministrative(current.status) && !clearedByHuman) {
+    return {
+      projection: {
+        ...base,
+        status: current.status,
+        idleSince: current.idleSince,
+        scanAssertedStatus: null,
+        scanAssertedAt: null,
+      },
+      conflict: null,
+    }
   }
 
-  if (!lastActiveAt) {
-    // No activity evidence has ever reached us — from an unmonitored asset, or one whose
-    // connector is not deployed. Concluding "idle" here would libel every asset in a site
-    // with no connectors, which is exactly the graceful-degradation case. Hold position.
-    return { status: current.status, idleSince: current.idleSince, lastSeenAt, lastActiveAt }
+  const telemetry = telemetryVerdict(lastActiveAt, now, thresholdMinutes)
+
+  // A live scan assertion outranks telemetry on IN_USE/IDLE, until its TTL expires.
+  if (scanAssertion) {
+    const ageMinutes = (now.getTime() - scanAssertion.at.getTime()) / MINUTE_MS
+
+    if (ageMinutes < policy.scanTtlMinutes) {
+      // Telemetry contradicting a live scan for long enough is diagnostic: the scan was
+      // wrong, the device is misconfigured, or the ref maps to the wrong machine. The scan
+      // still wins — but somebody should look.
+      const conflict: Conflict | null =
+        telemetry && telemetry.status !== scanAssertion.value && ageMinutes >= CONFLICT_SUSTAINED_MINUTES
+          ? {
+              scanStatus: scanAssertion.value,
+              telemetryStatus: telemetry.status,
+              scanAssertedAt: scanAssertion.at,
+              sustainedMinutes: Math.floor(ageMinutes),
+            }
+          : null
+
+      return {
+        projection: {
+          ...base,
+          status: scanAssertion.value,
+          // An operator saying "in use" is a statement about now; date the idle run from the
+          // scan rather than carrying a stale idleSince from before it.
+          idleSince: scanAssertion.value === 'IDLE' ? scanAssertion.at : null,
+          scanAssertedStatus: scanAssertion.value,
+          scanAssertedAt: scanAssertion.at,
+        },
+        conflict,
+      }
+    }
+    // TTL expired: telemetry resumes automatically, no cleanup needed. A judgement made this
+    // morning is good information about this morning and says nothing about tomorrow.
   }
 
-  const quietMinutes = (now.getTime() - lastActiveAt.getTime()) / MINUTE_MS
-  const threshold = idleThresholdMinutes(policy, assetClass)
-
-  if (quietMinutes >= threshold) {
-    // idleSince is when the asset went quiet, not when we noticed — that is the number the
-    // dashboard and the client's "idle for how long?" question actually want.
-    return { status: 'IDLE', idleSince: lastActiveAt, lastSeenAt, lastActiveAt }
+  if (!telemetry) {
+    // No telemetry verdict and no live scan. Hold position rather than invent a status.
+    return {
+      projection: {
+        ...base,
+        status: current.status,
+        idleSince: current.idleSince,
+        scanAssertedStatus: null,
+        scanAssertedAt: null,
+      },
+      conflict: null,
+    }
   }
 
-  return { status: 'IN_USE', idleSince: null, lastSeenAt, lastActiveAt }
+  return {
+    projection: {
+      ...base,
+      status: telemetry.status,
+      idleSince: telemetry.idleSince,
+      scanAssertedStatus: null,
+      scanAssertedAt: null,
+    },
+    conflict: null,
+  }
 }
 
 /** Minutes an asset has been idle at `now`, or 0 if it is not idle. */

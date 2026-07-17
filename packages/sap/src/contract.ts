@@ -19,6 +19,13 @@ export interface SapAssetMasterRecord {
   costCentre: string
   /** SAP asset class; mapped to an OAT AssetClass by `mapAssetClass`. */
   assetClass: string
+  /**
+   * SAP FI-AA's inventory number field, holding the OAT asset tag where Lablink populates it.
+   *
+   * The strongest match we get (ADR-0009): a human deliberately wrote the same number into
+   * both systems, which is a statement of identity rather than an inference.
+   */
+  inventoryNumber?: string
   serialNumber?: string
   manufacturer?: string
   /** Capitalisation date. Read for reference; the OAT never computes on it. */

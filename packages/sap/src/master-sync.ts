@@ -1,21 +1,26 @@
-import type { AssetClass, PrismaClient } from '@oat/db'
+import type { Asset, AssetClass, PrismaClient, ReconciliationReason } from '@oat/db'
 import { mapAssetClass, type SapAssetMasterRecord, type SapMasterSource } from './contract'
 
 /**
- * SAP → OAT one-way asset master sync.
+ * SAP → OAT one-way asset master sync (ADR-0009).
  *
- * Idempotent: safe to run on any schedule, and safe to re-run after a partial failure.
- * Writes nothing back to SAP — this module holds no sink and cannot.
+ * Idempotent: safe on any schedule, and safe to re-run after a partial failure. Writes
+ * nothing back to SAP — this module holds no sink and cannot.
+ *
+ * Matching precedence: existing link → tag → serial → manual (reconciliation queue).
+ *
+ * The OAT never creates assets. SAP knowing about an asset is not evidence that anyone
+ * tagged it; a sync that can invent register rows can poison the register unattended at 2am,
+ * and every phantom row would look exactly as legitimate as a real one.
  */
 
 export interface SyncResult {
   fetched: number
-  created: number
   /** Existing OAT assets newly matched to an SAP record. */
   linked: number
   updated: number
-  /** SAP records that could not be placed at a site. */
-  skipped: Array<{ assetNo: string; reason: string }>
+  /** SAP records that could not be placed and now await a human. */
+  queued: number
 }
 
 export interface SyncOptions {
@@ -26,8 +31,8 @@ export interface SyncOptions {
 
 /**
  * Fields SAP owns. The OAT mirrors them for display and never edits them — the ledger is
- * authoritative for identity and classification, so a local edit would silently diverge
- * and be overwritten by the next sync anyway.
+ * authoritative for identity and classification, so a local edit would silently diverge and
+ * be overwritten by the next sync anyway.
  */
 function ownedBySap(record: SapAssetMasterRecord) {
   return {
@@ -54,41 +59,40 @@ export async function syncAssetMaster(
   const actor = options.actor ?? 'system:sap-sync'
   const records = await source.fetchAssetMaster(options.changedSince ? { changedSince: options.changedSince } : {})
 
-  const result: SyncResult = { fetched: records.length, created: 0, linked: 0, updated: 0, skipped: [] }
+  const result: SyncResult = { fetched: records.length, linked: 0, updated: 0, queued: 0 }
 
   const sites = await prisma.site.findMany({ select: { id: true, code: true } })
   const siteByCode = new Map(sites.map((s) => [s.code, s.id]))
 
   for (const record of records) {
-    // Cost centre is the only site signal SAP gives us. An unmapped one means the site list
-    // is behind SAP — a configuration gap to report, not a reason to invent a site or to
+    // Cost centre is the only site signal SAP gives us. An unmapped one means our site list
+    // is behind SAP — a configuration gap for a human, not a reason to invent a site or to
     // abort the run and leave the rest of the estate unsynced.
     const siteId = siteByCode.get(record.costCentre)
     if (!siteId) {
-      result.skipped.push({ assetNo: record.assetNo, reason: `no site for cost centre ${record.costCentre}` })
+      await queue(prisma, record, 'UNKNOWN_COST_CENTRE')
+      result.queued++
       continue
     }
 
-    const existing = await findMatch(prisma, record)
+    const match = await findMatch(prisma, record)
 
-    if (!existing) {
-      // SAP knows an asset we have never tagged. Create it so it is visible in the
-      // register; the physical tag is applied later and reconciled by scan.
-      const created = await prisma.asset.create({
-        data: {
-          sapAssetNo: record.assetNo,
-          tag: `SAP-${record.assetNo}`,
-          siteId,
-          ...ownedBySap(record),
-          status: record.deactivated ? 'RETIRED' : 'IN_USE',
-          attributes: sapAttributes(record),
-        },
-      })
-      result.created++
-      await audit(prisma, actor, 'SAP_SYNC_CREATE', created.id, null, { sapAssetNo: record.assetNo })
+    if (match.kind === 'conflict') {
+      // A serial or tag we recognise, on an asset already linked to a different SAP number.
+      // Never silently re-point: one of the two records is wrong and only a human can say
+      // which.
+      await queue(prisma, record, 'CONFLICTING_LINK')
+      result.queued++
       continue
     }
 
+    if (match.kind === 'none') {
+      await queue(prisma, record, 'NO_MATCH')
+      result.queued++
+      continue
+    }
+
+    const existing = match.asset
     const isNewLink = existing.sapAssetNo === null
 
     const before = {
@@ -122,30 +126,71 @@ export async function syncAssetMaster(
       class: updated.class,
       siteId: updated.siteId,
       status: updated.status,
+      matchedBy: match.kind,
+    })
+
+    // The record is placed, so any queue item for it is now stale.
+    await prisma.reconciliationItem.updateMany({
+      where: { sapAssetNo: record.assetNo, status: 'OPEN' },
+      data: { status: 'RESOLVED', resolvedAssetId: updated.id, resolvedBy: actor, resolvedAt: new Date() },
     })
   }
 
   return result
 }
 
+type Match = { kind: 'sapAssetNo' | 'tag' | 'serial'; asset: Asset } | { kind: 'none' } | { kind: 'conflict' }
+
 /**
- * Find the OAT asset an SAP record refers to.
+ * Find the OAT asset an SAP record refers to (ADR-0009).
  *
- * Two-step because an asset is usually tagged and in operational use *before* finance
- * capitalises it: the SAP number does not exist yet at tagging time. Serial number is the
- * only identifier both systems independently hold, so it is what bridges the gap the first
- * time; after that, `sapAssetNo` is the stable key.
+ * Precedence: existing link → tag → serial. Tag before serial because a tag match is a
+ * deliberate human statement that these are the same asset — someone wrote the same number
+ * into both systems — whereas a serial match is an inference from data the two systems
+ * captured independently.
+ *
+ * Only ever adopts an UNLINKED asset. One already carrying a different sapAssetNo is a data
+ * conflict to investigate, never something to re-point.
  */
-async function findMatch(prisma: PrismaClient, record: SapAssetMasterRecord) {
-  const byAssetNo = await prisma.asset.findUnique({ where: { sapAssetNo: record.assetNo } })
-  if (byAssetNo) return byAssetNo
+async function findMatch(prisma: PrismaClient, record: SapAssetMasterRecord): Promise<Match> {
+  const linked = await prisma.asset.findUnique({ where: { sapAssetNo: record.assetNo } })
+  if (linked) return { kind: 'sapAssetNo', asset: linked }
 
-  if (!record.serialNumber) return null
+  if (record.inventoryNumber) {
+    const byTag = await prisma.asset.findUnique({ where: { tag: record.inventoryNumber } })
+    if (byTag) {
+      return byTag.sapAssetNo === null ? { kind: 'tag', asset: byTag } : { kind: 'conflict' }
+    }
+  }
 
-  // Only ever adopt an *unlinked* asset. An asset already carrying a different sapAssetNo
-  // is a data conflict to be investigated, not silently re-pointed.
-  return prisma.asset.findFirst({
-    where: { sapAssetNo: null, attributes: { path: ['serial'], equals: record.serialNumber } },
+  if (record.serialNumber) {
+    const bySerial = await prisma.asset.findFirst({
+      where: { attributes: { path: ['serial'], equals: record.serialNumber } },
+    })
+    if (bySerial) {
+      return bySerial.sapAssetNo === null ? { kind: 'serial', asset: bySerial } : { kind: 'conflict' }
+    }
+  }
+
+  return { kind: 'none' }
+}
+
+/**
+ * Queue an SAP record for human reconciliation.
+ *
+ * Upsert on sapAssetNo: a nightly sync must not stack a fresh item every run for the same
+ * unresolved record. `lastSeenAt` bumps via @updatedAt, so age — the thing worth alerting on
+ * — stays accurate.
+ */
+async function queue(prisma: PrismaClient, record: SapAssetMasterRecord, reason: ReconciliationReason): Promise<void> {
+  const sapRecord = JSON.parse(JSON.stringify(record))
+
+  await prisma.reconciliationItem.upsert({
+    where: { sapAssetNo: record.assetNo },
+    create: { sapAssetNo: record.assetNo, sapRecord, reason },
+    // Refresh the record and reason, but never revive one a human already dismissed — that
+    // would re-open the same settled argument every night until they stopped reading the queue.
+    update: { sapRecord, reason },
   })
 }
 
@@ -158,13 +203,6 @@ async function audit(
   after: unknown,
 ): Promise<void> {
   await prisma.auditLog.create({
-    data: {
-      actor,
-      action,
-      entity: 'Asset',
-      entityId,
-      before: before as never,
-      after: after as never,
-    },
+    data: { actor, action, entity: 'Asset', entityId, before: before as never, after: after as never },
   })
 }

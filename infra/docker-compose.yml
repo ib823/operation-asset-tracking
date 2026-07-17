@@ -28,10 +28,16 @@ services:
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER:-oat}:${POSTGRES_PASSWORD:-oat_dev_password}@postgres:5432/${POSTGRES_DB:-oat}
       NODE_ENV: production
-      # Bearer token for mutating endpoints. The default is a known dev value, NOT a secret:
-      # this compose file is for local demo and evaluation. A real deployment must supply
-      # OAT_API_TOKEN from the environment or a vault, never from this file.
-      OAT_API_TOKEN: ${OAT_API_TOKEN:-oat_local_demo_token}
+      # Auth.js session signing secret. The default is a known dev value, NOT a secret: this
+      # compose file is for local demo and evaluation. A real deployment must supply
+      # AUTH_SECRET from the environment or a vault, never from this file.
+      AUTH_SECRET: ${AUTH_SECRET:-oat_local_demo_secret_change_me_in_any_real_deploy}
+      # Required, or Auth.js throws UntrustedHost inside middleware — which Next swallows,
+      # silently disabling the gate. See ADR-0012.
+      AUTH_TRUST_HOST: 'true'
+      # For MACHINE callers only (the scheduler's sweep, connector polls). Humans use
+      # sessions + RBAC. Fails closed when unset.
+      OAT_SERVICE_TOKEN: ${OAT_SERVICE_TOKEN:-oat_local_demo_service_token}
       # Seed demo data on first start so `docker compose up` yields a working demo.
       # Idempotent (the seed upserts). Set to 0 for any real deployment — a production
       # container must never invent asset data on boot.

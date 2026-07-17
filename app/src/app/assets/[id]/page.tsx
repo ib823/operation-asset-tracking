@@ -1,3 +1,5 @@
+import { requirePermission } from '@/lib/page-auth'
+import { scopeToSite } from '@oat/auth'
 import { getAsset } from '@oat/core'
 import { prisma } from '@oat/db'
 import Link from 'next/link'
@@ -11,8 +13,15 @@ export const dynamic = 'force-dynamic'
 
 export default async function AssetDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params
+  const principal = await requirePermission('asset:read', `/assets/${id}`)
+
   const asset = await getAsset(prisma, id)
   if (!asset) notFound()
+
+  // A scoped user must not read another site's asset by knowing its id. 404, not 403 —
+  // confirming the id exists would leak that another site holds it.
+  const scope = scopeToSite(principal)
+  if (scope.kind === 'none' || (scope.kind === 'site' && scope.siteId !== asset.siteId)) notFound()
 
   const now = new Date()
   const idleFor = asset.status === 'IDLE' ? minutesSince(asset.idleSince, now) : null

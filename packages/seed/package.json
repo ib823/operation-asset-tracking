@@ -1,0 +1,18 @@
+{
+  "name": "@oat/seed",
+  "version": "0.1.0",
+  "private": true,
+  "license": "Apache-2.0",
+  "type": "module",
+  "scripts": {
+    "seed": "tsx src/seed.ts",
+    "reset:data": "tsx src/reset-data.ts"
+  },
+  "dependencies": {
+    "@oat/auth": "workspace:*",
+    "@oat/db": "workspace:*"
+  },
+  "devDependencies": {
+    "tsx": "^4.19.2"
+  }
+}

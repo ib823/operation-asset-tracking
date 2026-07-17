@@ -41,8 +41,18 @@ export class MockSapClient implements SapMasterSource, SapEventSink {
 }
 
 /**
- * Demo asset master. Cost centres correspond to the seeded site codes, and asset numbers
- * to the seeded tags, so the mock sync has something to match on.
+ * Demo asset master. Cost centres correspond to the seeded site codes.
+ *
+ * Deliberately exercises every matching path in ADR-0009, because a fixture where everything
+ * matches cleanly would only ever demo the happy path:
+ *
+ *   100000001-4   inventory number populated   -> matched by TAG
+ *   100000005-9   no inventory number, serial  -> matched by SERIAL
+ *   100000010     neither                      -> queued (NO_MATCH)
+ *   100000011     cost centre we do not know   -> queued (UNKNOWN_COST_CENTRE)
+ *
+ * The last two are the point: SAP knows about them, and the OAT will NOT invent assets for
+ * them. They surface as reconciliation work for a human.
  */
 export const DEMO_ASSET_MASTER: SapAssetMasterRecord[] = [
   {
@@ -50,6 +60,7 @@ export const DEMO_ASSET_MASTER: SapAssetMasterRecord[] = [
     description: 'Haematology Analyser XN-1000',
     costCentre: 'KL01',
     assetClass: '3000',
+    inventoryNumber: 'LAB-0001',
     serialNumber: 'SN-XN1000-4471',
     manufacturer: 'Sysmex',
     capitalisedOn: '2023-04-11',
@@ -59,6 +70,7 @@ export const DEMO_ASSET_MASTER: SapAssetMasterRecord[] = [
     description: 'Chemistry Analyser AU680',
     costCentre: 'KL01',
     assetClass: '3000',
+    inventoryNumber: 'LAB-0002',
     serialNumber: 'SN-AU680-1182',
     manufacturer: 'Beckman Coulter',
     capitalisedOn: '2022-09-30',
@@ -68,6 +80,7 @@ export const DEMO_ASSET_MASTER: SapAssetMasterRecord[] = [
     description: 'Centrifuge 5810R',
     costCentre: 'KL01',
     assetClass: '3100',
+    inventoryNumber: 'LAB-0003',
     serialNumber: 'SN-5810R-8823',
     manufacturer: 'Eppendorf',
     capitalisedOn: '2024-01-15',
@@ -77,6 +90,7 @@ export const DEMO_ASSET_MASTER: SapAssetMasterRecord[] = [
     description: 'Reporting Workstation',
     costCentre: 'KL01',
     assetClass: '4000',
+    inventoryNumber: 'LAB-0004',
     serialNumber: 'SN-WS-2201',
     manufacturer: 'Dell',
     capitalisedOn: '2024-06-02',
@@ -126,12 +140,23 @@ export const DEMO_ASSET_MASTER: SapAssetMasterRecord[] = [
     manufacturer: 'Olympus',
     capitalisedOn: '2022-03-05',
   },
+  // SAP has it; nobody tagged it. Goes to the queue rather than becoming a phantom asset.
   {
     assetNo: '100000010',
-    description: 'Sample Rack Set',
+    description: 'Sample Rack Set (bulk)',
     costCentre: 'JB03',
     assetClass: '5000',
     manufacturer: 'Generic',
     capitalisedOn: '2024-10-01',
+  },
+  // A site the OAT has never heard of - our site list is behind SAP.
+  {
+    assetNo: '100000011',
+    description: 'Analyser at a new branch',
+    costCentre: 'KK04',
+    assetClass: '3000',
+    serialNumber: 'SN-NEW-0001',
+    manufacturer: 'Sysmex',
+    capitalisedOn: '2026-01-05',
   },
 ]

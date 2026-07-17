@@ -1,7 +1,7 @@
 import type { Prisma } from '@oat/db'
 import { type AssetClass, type PrismaClient } from '@oat/db'
 import { project, type AssetProjection } from './idle-engine'
-import { resolveIdlePolicy, type IdlePolicy } from './idle-policy'
+import { DEFAULT_ENGINE_POLICY, type EnginePolicy } from './idle-policy'
 import type { SignalInput } from './signals'
 
 /**
@@ -39,12 +39,12 @@ export interface IngestResult {
 export async function ingestSignals(
   prisma: PrismaClient,
   signals: readonly SignalInput[],
-  options: { now?: Date; policy?: IdlePolicy } = {},
+  options: { now?: Date; policy?: EnginePolicy } = {},
 ): Promise<IngestResult> {
   if (signals.length === 0) return { accepted: 0, duplicates: 0, assetsUpdated: [] }
 
   const now = options.now ?? new Date()
-  const policy = options.policy ?? resolveIdlePolicy()
+  const policy = options.policy ?? DEFAULT_ENGINE_POLICY
 
   const written = await prisma.signalEvent.createMany({
     data: signals.map((s) => ({
@@ -81,14 +81,23 @@ export async function ingestSignals(
 export async function reprojectAsset(
   prisma: PrismaClient,
   assetId: string,
-  options: { now?: Date; policy?: IdlePolicy } = {},
+  options: { now?: Date; policy?: EnginePolicy } = {},
 ): Promise<AssetProjection | null> {
   const now = options.now ?? new Date()
-  const policy = options.policy ?? resolveIdlePolicy()
+  const policy = options.policy ?? DEFAULT_ENGINE_POLICY
 
   const asset = await prisma.asset.findUnique({
     where: { id: assetId },
-    select: { id: true, class: true, status: true, idleSince: true, lastSeenAt: true, lastActiveAt: true },
+    select: {
+      id: true,
+      class: true,
+      status: true,
+      idleSince: true,
+      lastSeenAt: true,
+      lastActiveAt: true,
+      scanAssertedStatus: true,
+      scanAssertedAt: true,
+    },
   })
   if (!asset) return null
 
@@ -98,13 +107,15 @@ export async function reprojectAsset(
     select: { assetId: true, source: true, type: true, value: true, observedAt: true },
   })
 
-  const next = project({
+  const { projection, conflict } = project({
     assetClass: asset.class,
     current: {
       status: asset.status,
       idleSince: asset.idleSince,
       lastSeenAt: asset.lastSeenAt,
       lastActiveAt: asset.lastActiveAt,
+      scanAssertedStatus: asset.scanAssertedStatus,
+      scanAssertedAt: asset.scanAssertedAt,
     },
     signals: signals as unknown as SignalInput[],
     now,
@@ -114,14 +125,62 @@ export async function reprojectAsset(
   await prisma.asset.update({
     where: { id: assetId },
     data: {
-      status: next.status,
-      idleSince: next.idleSince,
-      lastSeenAt: next.lastSeenAt,
-      lastActiveAt: next.lastActiveAt,
+      status: projection.status,
+      idleSince: projection.idleSince,
+      lastSeenAt: projection.lastSeenAt,
+      lastActiveAt: projection.lastActiveAt,
+      scanAssertedStatus: projection.scanAssertedStatus,
+      scanAssertedAt: projection.scanAssertedAt,
     },
   })
 
-  return next
+  await recordConflict(prisma, assetId, conflict)
+
+  return projection
+}
+
+/**
+ * Record a sustained scan-vs-telemetry disagreement, or close one that has resolved.
+ *
+ * One OPEN alert per asset at a time: the engine re-evaluates on every projection, so
+ * inserting per detection would produce an alert every poll for the same underlying problem
+ * and train everyone to ignore them.
+ */
+async function recordConflict(
+  prisma: PrismaClient,
+  assetId: string,
+  conflict: Awaited<ReturnType<typeof project>>['conflict'],
+): Promise<void> {
+  const open = await prisma.conflictAlert.findFirst({ where: { assetId, status: 'OPEN' } })
+
+  if (!conflict) {
+    // The disagreement is gone — the scan expired, telemetry came round, or a human acted.
+    if (open) {
+      await prisma.conflictAlert.update({
+        where: { id: open.id },
+        data: { status: 'RESOLVED', resolvedAt: new Date() },
+      })
+    }
+    return
+  }
+
+  if (open) {
+    await prisma.conflictAlert.update({
+      where: { id: open.id },
+      data: { sustainedMinutes: conflict.sustainedMinutes, telemetryStatus: conflict.telemetryStatus },
+    })
+    return
+  }
+
+  await prisma.conflictAlert.create({
+    data: {
+      assetId,
+      scanStatus: conflict.scanStatus,
+      telemetryStatus: conflict.telemetryStatus,
+      scanAssertedAt: conflict.scanAssertedAt,
+      sustainedMinutes: conflict.sustainedMinutes,
+    },
+  })
 }
 
 /**
@@ -132,15 +191,22 @@ export async function reprojectAsset(
  */
 export async function sweepIdleAssets(
   prisma: PrismaClient,
-  options: { now?: Date; policy?: IdlePolicy } = {},
+  options: { now?: Date; policy?: EnginePolicy } = {},
 ): Promise<{ swept: number }> {
   const now = options.now ?? new Date()
-  const policy = options.policy ?? resolveIdlePolicy()
+  const policy = options.policy ?? DEFAULT_ENGINE_POLICY
 
   const candidates = await prisma.asset.findMany({
     // Administrative statuses are held by a human decision; the sweep has no business
     // touching them, and skipping them keeps the scan proportional to live assets.
-    where: { status: { in: ['IN_USE', 'IDLE'] }, lastActiveAt: { not: null } },
+    //
+    // A live scan assertion is also swept even with no lastActiveAt: its TTL can expire
+    // purely on the clock, so "no new signals" no longer implies "no status change"
+    // (ADR-0010).
+    where: {
+      status: { in: ['IN_USE', 'IDLE'] },
+      OR: [{ lastActiveAt: { not: null } }, { scanAssertedAt: { not: null } }],
+    },
     select: { id: true },
   })
 

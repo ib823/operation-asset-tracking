@@ -34,30 +34,32 @@ docker compose -f infra/docker-compose.yml up
 That is the whole demo: Postgres starts, migrations apply, 10 assets across 3 sites are
 seeded, and the app comes up on <http://localhost:3000>.
 
-Then drive the slice:
+Sign in at <http://localhost:3000/signin> as any seeded user — password `devpassword123`:
+
+| User                         | Role                   | Sees                                        |
+| ---------------------------- | ---------------------- | ------------------------------------------- |
+| `labmanager@lablink.example` | HQ Lab Manager         | all 32 sites, utilisation, idle policy      |
+| `branch.kl@lablink.example`  | Branch                 | **KL01 only** — scan, move, assign          |
+| `finance@lablink.example`    | Finance                | register + approves SAP write-back          |
+| `it@lablink.example`         | IT                     | connectors, integrations, runs the SAP sync |
+| `purchasing@` · `developer@` | Purchasing · Developer |                                             |
+
+Then, signed in as `it@`, run the SAP sync from the UI or the API. `LAB-0004` flips to
+**IDLE** when the MDM reports it quiet, dated from when it went quiet rather than when we
+were told — and the dashboard tile reflects it.
+
+Machine callers (the scheduler's sweep, connector polls) use a separate service token:
 
 ```bash
-TOKEN=oat_local_demo_token
-
-# Pull the SAP asset master — populates sapAssetNo on the shared key.
-curl -X POST -H "Authorization: Bearer $TOKEN" localhost:3000/api/sap/sync
-
 # The MDM reports a workstation idle for 45 minutes (IT threshold: 30).
-curl -X POST -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+curl -X POST -H "Authorization: Bearer oat_local_demo_service_token" \
+  -H 'Content-Type: application/json' \
   -d "{\"reports\":[{\"deviceId\":\"DEV-77\",\"assetRef\":\"LAB-0004\",\"idleMinutes\":45,\"reportedAt\":\"$(date -u +%FT%TZ)\"}]}" \
   localhost:3000/api/connectors/soti/poll
-
-# Scan an asset onto the repair bench — no automated connector involved.
-curl -X POST -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
-  -d '{"tag":"LAB-0003","location":"Repair bench","status":"UNDER_REPAIR"}' \
-  localhost:3000/api/signals/scan
 ```
 
-LAB-0004 flips to **IDLE**, dated from when it went quiet rather than when we were told, and
-the dashboard tile reflects it.
-
-> The token above is a known local default, not a secret. Any real deployment must supply
-> `OAT_API_TOKEN` from the environment or a vault.
+> Every credential above is a known local default, not a secret. A real deployment supplies
+> `AUTH_SECRET` and `OAT_SERVICE_TOKEN` from the environment or a vault.
 
 ## Development
 
@@ -100,6 +102,38 @@ Connectors never write asset state. They emit immutable observations, and the id
 a pure function of (signals, policy) — decides what they mean. This is what lets the idle
 definition change without a data migration, keeps a late-arriving MDM backlog from reading
 as fresh idleness, and makes every utilisation figure defensible to an auditor.
+
+### The rules that decide what the numbers mean
+
+- **A heartbeat is never activity.** Idle is per-`AssetClass` config, and each class declares
+  which sources may evidence _use_. Instruments derive idle from the **LIS** only: an analyser
+  idle overnight still answers SNMP, and counting that as use would make every instrument
+  report ~100% utilisation forever — the OAT's central claim, confidently false. An instrument
+  with no LIS feed reports _unknown_, never 100%
+  ([ADR-0008](docs/decisions/0008-idle-is-per-class-config-instruments-derive-from-lis.md)).
+- **The OAT never creates assets.** SAP matching runs tag → serial → manual; anything
+  unmatched goes to a **reconciliation queue** for a human. SAP knowing about an asset is not
+  evidence that anyone tagged it, and a sync that can invent register rows can poison the
+  register unattended at 2am
+  ([ADR-0009](docs/decisions/0009-sap-matching-precedence-and-reconciliation-queue.md)).
+- **Scan and telemetry own different facts.** Scan owns location, custodian, and
+  administrative status; telemetry owns idle/utilisation. On the one contested question
+  (IN_USE↔IDLE) a scan wins for a **12-hour TTL**, then telemetry resumes automatically —
+  so operators' scans have real effect, and stale human judgement cannot outrank current
+  machine fact forever. `UNDER_REPAIR`/`RETIRED` are sticky and human-cleared only
+  ([ADR-0010](docs/decisions/0010-scan-and-telemetry-precedence.md)).
+
+## Access control
+
+Auth.js v5 + RBAC across the six RFP Appendix F roles. Every page and route enforces its own
+permission and site scope — **middleware is an optimisation, not the boundary**
+([ADR-0012](docs/decisions/0012-pages-enforce-their-own-access.md)). That ADR exists because
+we shipped a middleware gate that was correct, registered, and completely bypassed: Auth.js
+threw inside it, Next swallowed the error, and the register was served unauthenticated. It
+failed _open_, and every page still loaded, so nothing looked wrong.
+
+Verified by deliberate falsification: with middleware disabled entirely, `/assets` still
+redirects and leaks nothing.
 
 ## Connectors
 

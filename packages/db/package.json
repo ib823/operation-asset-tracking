@@ -13,18 +13,12 @@
     "generate": "prisma generate",
     "migrate:dev": "prisma migrate dev",
     "migrate:deploy": "prisma migrate deploy",
-    "seed": "tsx prisma/seed.ts",
-    "reset:data": "tsx prisma/reset-data.ts",
     "studio": "prisma studio"
-  },
-  "prisma": {
-    "seed": "tsx prisma/seed.ts"
   },
   "dependencies": {
     "@prisma/client": "^6.2.1"
   },
   "devDependencies": {
-    "prisma": "^6.2.1",
-    "tsx": "^4.19.2"
+    "prisma": "^6.2.1"
   }
 }
