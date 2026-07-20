@@ -37,9 +37,13 @@ RUN pnpm --filter @oat/app build
 FROM base AS runtime
 ENV NODE_ENV=production
 ENV NEXT_TELEMETRY_DISABLED=1
+# corepack's first `pnpm` invocation prompts "[Y/n]" to download the pinned pnpm. The
+# devcontainer's non-interactive postCreate hangs on that prompt forever. Bake the opt-out
+# in so it holds for the image build, postCreate, terminals, and CCC alike.
+ENV COREPACK_ENABLE_DOWNLOAD_PROMPT=0
 
 # Run as a non-root user. `node` already exists in the base image.
-RUN apk add --no-cache tini
+RUN apk add --no-cache tini git bash
 
 COPY --from=build --chown=node:node /app/node_modules ./node_modules
 COPY --from=build --chown=node:node /app/package.json ./package.json

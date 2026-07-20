@@ -1,15 +1,20 @@
 {
   "name": "Lablink OAT",
   "dockerComposeFile": "../infra/docker-compose.yml",
-  // Attach to postgres and develop against it, rather than running the app container:
-  // in a Codespace you want the app on the host with hot reload, but a real Postgres.
-  "service": "postgres",
+  // Attach to the app service: its image is node:22-alpine, so Node 22 + pnpm (via corepack)
+  // are already present. Attaching to postgres instead left the dev container on an Alpine
+  // image with no Node, and the node devcontainer feature does not support Alpine ("Linux
+  // distro alpine not supported"), which failed creation and dropped Codespaces to recovery.
+  // Postgres still comes up as a compose dependency, so we develop against a real database.
+  "service": "app",
   "workspaceFolder": "/workspaces/operation-asset-tracking",
+  // Do not run the app's production CMD (migrate-then-start); keep the dev container idle so
+  // we drive pnpm dev / tests / compose ourselves.
   "overrideCommand": true,
-  "features": {
-    "ghcr.io/devcontainers/features/node:1": { "version": "22" },
-    "ghcr.io/devcontainers/features/git:1": {}
-  },
+  // No Features on this Alpine image. The node feature is Alpine-incompatible; the git
+  // Feature is a bash script and node:22-alpine has no bash, so it exits 127 and fails the
+  // build. git + bash are installed in the runtime image via apk instead (infra/Dockerfile).
+  "features": {},
   "customizations": {
     "vscode": {
       "extensions": [
