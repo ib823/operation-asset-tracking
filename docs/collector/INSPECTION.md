@@ -59,8 +59,8 @@ attaches the real `assetId` via `resolveAssetByRef` and ingests. No adapter need
 
 - The never-create invariant is in `packages/connectors/src/pipeline.ts:40-47`, not "~line 40 of
   a `resolveAssetByRef`": an unmatched `externalRef` is pushed to `unmatched[]` and `continue`d —
-  **no asset is created** (`pipeline.ts:41-46`). Comment: *"Report it rather than creating an
-  asset … Reconciliation is a human decision."*
+  **no asset is created** (`pipeline.ts:41-46`). Comment: _"Report it rather than creating an
+  asset … Reconciliation is a human decision."_
 - `resolveAssetByRef` itself lives in **`packages/core/src/registry.ts:294-300`** (not in
   `pipeline.ts`). It matches `tag` OR `sapAssetNo` and returns `id | null`. `pipeline.ts` imports
   it from `@oat/core` (`pipeline.ts:1`).
@@ -72,7 +72,7 @@ return value only; it is NOT written to the `ReconciliationItem` table.** That t
 **SAP sync**, with reasons `NO_MATCH | UNKNOWN_COST_CENTRE | CONFLICTING_LINK`
 (`schema.prisma:223-230`) — all SAP-origin. So "unmatched → reconciliation" is today true for
 **SAP records** but, for **signals**, means "returned as `unmatched`, never written to the
-register." Phase 4 must decide (in the ADR) whether a collector's unmatched *signal* ref should
+register." Phase 4 must decide (in the ADR) whether a collector's unmatched _signal_ ref should
 also surface a reconciliation artefact; the safe invariant ("never creates an asset") already
 holds either way. See Phase 1 ADR.
 
@@ -82,7 +82,7 @@ holds either way. See Phase 1 ADR.
 sweep, and the nightly rollup (`scheduler.ts:15-49`). It calls `pollConnector(prisma, connector)`
 (`scheduler.ts:1`) with connectors resolved by `packages/jobs/src/connectors.ts`
 (`snmpConnector()`, `osqueryConnector()`, `sotiConnector()`). The worker has **direct Prisma
-access** — it is *inside* the trust boundary. The collector will **not**; that is the whole point.
+access** — it is _inside_ the trust boundary. The collector will **not**; that is the whole point.
 
 `packages/jobs/src/demo-poll-snmp.ts` already exists (`pnpm demo:poll-snmp`): a one-shot double
 poll of a real SNMP agent proving a page-count delta → `utilisation busy:true`. It reuses
@@ -138,8 +138,8 @@ The collector demo (Phase 5) will **reuse `snmpsim` unchanged** and replace the 
 ## Signal & type facts (for the outbound payload design)
 
 - `SignalInput` (`packages/core/src/signals.ts:49-58`): `{ assetId, source, type, value,
-  observedAt, dedupeKey? }`. `RawSignal` (`signals.ts:60-64`): `{ externalRef, observedAt,
-  payload }`.
+observedAt, dedupeKey? }`. `RawSignal` (`signals.ts:60-64`): `{ externalRef, observedAt,
+payload }`.
 - `SignalSource` is a **zod enum**, not a DB enum: `scan|soti|osquery|ocs|snmp|lis`
   (`signals.ts:11`). Adding a source needs no migration. The collector emits only existing
   sources (`snmp`, `osquery`); the **subnet sweep produces identity hints, not `SignalEvent`s**,
@@ -152,12 +152,12 @@ The collector demo (Phase 5) will **reuse `snmpsim` unchanged** and replace the 
 
 ## Confirmed drift / corrections summary
 
-| # | Brief said | Reality | Adaptation |
-|---|------------|---------|------------|
-| A | `apps/collector` an option | No `apps/`; workspace globs `packages/*` + `app` | Use `packages/collector` (ADR Phase 1) |
-| B | ADRs in `docs/adr/` | Repo uses **`docs/decisions/NNNN-*.md`**, next # = **0021** | Put the new ADR in `docs/decisions/` to match convention; note the brief's `docs/adr/` path |
-| C | `resolveAssetByRef` ~line 40 of `pipeline.ts` | It's in `core/registry.ts:294`; `pipeline.ts:40` is the never-create branch | Cite both correctly |
-| D | "unmatched → reconciliation" | Connector unmatched is **reported, not written** to `ReconciliationItem` (that table is SAP-keyed) | Phase 4/ADR decides whether to persist a signal-side reconciliation artefact; never-create holds regardless |
+| #   | Brief said                                    | Reality                                                                                            | Adaptation                                                                                                  |
+| --- | --------------------------------------------- | -------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------- |
+| A   | `apps/collector` an option                    | No `apps/`; workspace globs `packages/*` + `app`                                                   | Use `packages/collector` (ADR Phase 1)                                                                      |
+| B   | ADRs in `docs/adr/`                           | Repo uses **`docs/decisions/NNNN-*.md`**, next # = **0021**                                        | Put the new ADR in `docs/decisions/` to match convention; note the brief's `docs/adr/` path                 |
+| C   | `resolveAssetByRef` ~line 40 of `pipeline.ts` | It's in `core/registry.ts:294`; `pipeline.ts:40` is the never-create branch                        | Cite both correctly                                                                                         |
+| D   | "unmatched → reconciliation"                  | Connector unmatched is **reported, not written** to `ReconciliationItem` (that table is SAP-keyed) | Phase 4/ADR decides whether to persist a signal-side reconciliation artefact; never-create holds regardless |
 
 ## Confirmed assumptions (carried into later phases)
 
