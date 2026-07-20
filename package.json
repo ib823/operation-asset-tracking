@@ -22,6 +22,7 @@
     "db:deploy": "pnpm --filter @oat/db migrate:deploy",
     "db:generate": "pnpm --filter @oat/db generate",
     "db:seed": "pnpm --filter @oat/seed seed",
+    "demo:poll-snmp": "pnpm --filter @oat/jobs demo:poll-snmp",
     "licences": "node scripts/check-licences.mjs",
     "sbom": "node scripts/generate-sbom.mjs",
     "db:reset-data": "pnpm --filter @oat/seed reset:data"

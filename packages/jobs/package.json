@@ -10,7 +10,8 @@
     ".": "./src/index.ts"
   },
   "scripts": {
-    "start": "tsx src/worker.ts"
+    "start": "tsx src/worker.ts",
+    "demo:poll-snmp": "tsx src/demo-poll-snmp.ts"
   },
   "dependencies": {
     "@oat/connectors": "workspace:*",

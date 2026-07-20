@@ -58,6 +58,19 @@ services:
       postgres:
         condition: service_healthy
 
+  # Emulated SNMP printer for the SNMP live-signal demo (docs/DEMO.md). A pure-Python SNMP
+  # agent (snmpsim) that serves the Printer-MIB page counter as an increasing value, so the
+  # worker polls a REAL SNMP device entirely inside this network — no external reach, nothing
+  # faked. Demo scaffolding only; a real deployment points OAT_SNMP_TARGETS at real printers
+  # and does not run this service.
+  snmpsim:
+    build:
+      context: ./snmpsim
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    # UDP 161 is reachable as snmpsim:161 on the compose network. Not published to the host —
+    # the demo is self-contained; the worker is the only client.
+
   # The scheduler: connector polls, the idle sweep, the nightly utilisation rollup.
   #
   # A separate process from the app, deliberately (ADR-0020) — same image, different command.
@@ -78,7 +91,12 @@ services:
       OAT_CONNECTOR_SCAN: '1'
       OAT_CONNECTOR_SOTI: '1'
       OAT_CONNECTOR_OSQUERY: '0'
-      OAT_CONNECTOR_SNMP: '0'
+      # SNMP on, pointed at the emulated printer above. Its tag is a seeded PRINTER asset
+      # (LAB-0005), so the poll resolves to a real asset and writes real signals. Point this
+      # at real printers (TAG@host[:port], comma-separated) for a real deployment.
+      OAT_CONNECTOR_SNMP: '1'
+      OAT_SNMP_TARGETS: ${OAT_SNMP_TARGETS:-LAB-0005@snmpsim:161}
+      OAT_SNMP_COMMUNITY: ${OAT_SNMP_COMMUNITY:-public}
       OAT_CONNECTOR_LIS: '0'
       OAT_SAP_CLIENT: mock
     depends_on:
@@ -87,6 +105,9 @@ services:
       # Not for the app itself, but for its migrations: the worker must not touch tables the
       # app has not created yet.
       app:
+        condition: service_started
+      # The SNMP target must be listening before the worker polls it.
+      snmpsim:
         condition: service_started
 
 volumes:
