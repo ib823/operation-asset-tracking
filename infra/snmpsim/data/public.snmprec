@@ -1,0 +1,24 @@
+# Simulated SNMP device for the OAT SNMP live-signal demo.
+#
+# snmpsim maps the SNMP community string to the .snmprec basename, so this file is served for
+# community "public" — matching the connector default (OAT_SNMP_COMMUNITY, packages/
+# connectors/src/snmp.ts). It answers exactly the OIDs the OAT SNMP connector GETs:
+#
+#   1.3.6.1.2.1.1.1.0            sysDescr           device description   (identity)
+#   1.3.6.1.2.1.1.3.0            sysUpTime          time since boot      (liveness)
+#   1.3.6.1.2.1.1.5.0            sysName            device name          (identity)
+#   1.3.6.1.2.1.43.10.2.1.4.1.1  prtMarkerLifeCount lifetime page count  (THE work signal)
+#
+# The record format is:  <OID>|<type-tag>[:<variation-module>]|<value-or-params>
+# Type tags: 4 = OctetString, 65 = Counter32, 67 = TimeTicks.
+#
+# sysUpTime and prtMarkerLifeCount use snmpsim's `numeric` variation module, which returns a
+# non-decreasing integer that grows with time (rate = units per second). That is the whole
+# point of the demo: two reads a few seconds apart return DIFFERENT page counts, and that
+# delta is the only real evidence a printer did work. A printer answering an SNMP walk is
+# reachable, not busy (ADR-0008) — a moving prtMarkerLifeCount is busy. The connector turns
+# the increase into a `utilisation busy:true` signal; a flat counter would be a heartbeat.
+1.3.6.1.2.1.1.1.0|4|Lablink OAT Demo Printer (snmpsim) - Brother TD-4550
+1.3.6.1.2.1.1.3.0|67:numeric|rate=100,initial=0
+1.3.6.1.2.1.1.5.0|4|oat-demo-printer
+1.3.6.1.2.1.43.10.2.1.4.1.1|65:numeric|rate=10,initial=1000
