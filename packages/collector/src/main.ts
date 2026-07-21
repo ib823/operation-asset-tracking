@@ -5,12 +5,12 @@
  * with the SHARED connector logic, and pushes outbound to cloud OAT. It holds NO database
  * connection — by design, which is what makes it structurally unable to create an asset. If you
  * see this process open a Postgres socket, something is very wrong.
- *
- * Phase 2 scaffolds the process: it loads and reports its configuration and heartbeat. The
- * collection modules (Phase 3) and the outbound push loop (Phase 4) build on this skeleton.
  */
+import { OatChannel } from './channel'
+import { startLoop } from './collector'
 import { configProblems, enabledModules, loadCollectorConfig } from './config'
 import { HealthReporter } from './health'
+import { buildModules } from './modules'
 
 /** The OAT host only — never the token, never a full credentialed URL. Safe to log. */
 function safeHost(url: string): string {
@@ -23,28 +23,40 @@ function safeHost(url: string): string {
 
 function main(): void {
   const config = loadCollectorConfig()
-  const modules = enabledModules(config)
+  const modules = buildModules(config)
+  const moduleIds = enabledModules(config)
   const collectorId = config.channel?.collectorId ?? '(unenrolled)'
 
   console.log(`[collector] starting — id=${collectorId}`)
   console.log(
     `[collector]   OAT target: ${config.channel ? safeHost(config.channel.oatUrl) : '(not configured)'} (outbound HTTPS only)`,
   )
-  console.log(`[collector]   modules: ${modules.join(', ') || 'none configured'}`)
+  console.log(`[collector]   modules: ${moduleIds.join(', ') || 'none configured'}`)
   console.log(`[collector]   poll interval: ${Math.round(config.pollIntervalMs / 1000)}s`)
 
   const problems = configProblems(config)
-  if (problems.length > 0) {
-    console.warn('[collector] not ready to collect:')
-    for (const p of problems) console.warn(`[collector]   - ${p}`)
+  for (const p of problems) console.warn(`[collector]   ! ${p}`)
+
+  const channel = config.channel ? new OatChannel(config.channel) : null
+  const health = new HealthReporter(collectorId, moduleIds)
+
+  if (moduleIds.length === 0) {
+    // Nothing to collect: report and exit rather than spin an empty loop looking busy.
+    console.warn('[collector] no collection module configured — nothing to do. Exiting.')
+    console.log(health.heartbeatLine())
+    return
   }
 
-  const health = new HealthReporter(collectorId, modules)
-  console.log(health.heartbeatLine())
+  console.log('[collector] entering collect → push loop. Ctrl-C to stop.')
+  const stop = startLoop({ modules, channel, health, log: (m) => console.log(m) }, config.pollIntervalMs)
 
-  // The collect→push loop is wired in Phase 3 (modules) and Phase 4 (channel). Until then the
-  // process reports its configuration and exits, rather than idling and looking busy.
-  console.log('[collector] scaffold ready. Collection loop lands in Phase 3/4.')
+  const shutdown = () => {
+    console.log('\n[collector] stopping.')
+    stop()
+    process.exit(0)
+  }
+  process.on('SIGINT', shutdown)
+  process.on('SIGTERM', shutdown)
 }
 
 main()
