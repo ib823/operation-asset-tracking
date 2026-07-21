@@ -3,7 +3,7 @@
 Living log for the on-LAN Collector work (ADR-0021). Read with `docs/collector/INSPECTION.md`.
 The top-level `PROGRESS.md` covers the OAT product; this file covers the collector module.
 
-## Status: Phase 4 complete (local gates green; e2e/DB gate runs in CI). Phase 5 next.
+## Status: Phase 5 complete (packaging + demo built; compose smoke runs in CI). Phase 6 next.
 
 | Phase | What                                      | Gate                                                     | State |
 | ----- | ----------------------------------------- | -------------------------------------------------------- | ----- |
@@ -12,7 +12,7 @@ The top-level `PROGRESS.md` covers the OAT product; this file covers the collect
 | 2     | Scaffold + shared collect/normalise split | build+typecheck+all tests+licence green, zero regression | ✅    |
 | 3     | Collection modules + SNMP proof           | module tests + SNMP integration vs emulator green        | ✅    |
 | 4     | Outbound channel + enrollment + ingest    | integration + invariant tests green                      | ✅    |
-| 5     | Packaging + self-contained live demo      | compose demo → real signal on seeded asset in UI         | ⏳    |
+| 5     | Packaging + self-contained live demo      | compose demo → real signal on seeded asset in UI         | ✅    |
 | 6     | Security review, docs, PR(s)              | CI green, checklist, merged                              | ⏳    |
 | 7     | Production-readiness capstone             | PROD_READINESS.md CLOSED vs REQUIRES-EXTERNAL            | ⏳    |
 
@@ -62,6 +62,22 @@ The top-level `PROGRESS.md` covers the OAT product; this file covers the collect
   bearer; redelivery deduped; SAP linkage untouched.
 - Local gates green: 256 pass / 6 skipped, typecheck/lint/format/licences. The DB-backed e2e
   runs in CI (no local Postgres/Docker in this environment).
+
+### Phase 5 — packaging + live demo
+
+- **`infra/collector.Dockerfile`**: Alpine (node:22-alpine), non-root, `COREPACK_ENABLE_DOWNLOAD_PROMPT=0`,
+  tini as PID 1. Leaner than the app image on purpose — no `next build`, no `prisma generate`,
+  no DB. Licence-clean (net-snmp/zod MIT + Node built-ins).
+- **`infra/collector-demo/docker-compose.yml`**: self-contained, offline stack — postgres + app
+  (seeded) + snmpsim (emulated printer) + collector. The collector polls the printer and pushes
+  outbound to the app; no external network, no DB on the collector.
+- **`infra/collector-demo/smoke.sh`**: headless proof — brings the stack up, waits for the
+  collector to deliver an SNMP `utilisation` signal, asserts against the DB that LAB-0005's
+  `lastActiveAt` moved, tears down. Wired as the CI `collector-demo` job (builds the collector
+  image + runs the full compose end-to-end → GATE 5 automated).
+- **`docs/collector/DEMO.md`**: compose quick-start, "visible in the UI" walkthrough, and the
+  run-on-a-laptop native path, plus troubleshooting.
+- Not runnable in this dev environment (no local Docker/Postgres); it runs in CI.
 
 ## Assumptions to confirm (collector-specific)
 

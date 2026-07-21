@@ -1,0 +1,98 @@
+# Self-contained on-LAN Collector demo (ADR-0021).
+#
+# Proves the collector end to end with NOTHING outside this compose network and nothing faked
+# in the signal path:
+#
+#   snmpsim (emulated printer, rising page counter)
+#        ▲  SNMP v2c over the compose network
+#        │
+#   collector  ── HTTPS-shaped POST ─▶  app (/api/collector/ingest)  ──▶  postgres
+#   (on the "LAN")     outbound only        resolve → ingest, never create
+#
+# The collector holds NO database connection. It polls the emulated printer, sees the page
+# counter rise, and pushes a real `utilisation` signal outbound to the app, which resolves it to
+# the seeded PRINTER asset LAB-0005 and moves its utilisation. Run it:
+#
+#   docker compose -f infra/collector-demo/docker-compose.yml up --build
+#
+# Then open http://localhost:3000, sign in (labmanager@lablink.example / devpassword123) and
+# look at LAB-0005 — "Recent signals" shows the SNMP utilisation the collector delivered.
+# See docs/collector/DEMO.md. This stack is demo scaffolding; a real deployment runs the
+# collector on the customer LAN pointed at real printers, never snmpsim.
+
+name: oat-collector-demo
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: oat
+      POSTGRES_PASSWORD: oat_dev_password
+      POSTGRES_DB: oat
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U oat -d oat']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # Cloud OAT: the web app + the ingest endpoint. Migrates and seeds on first start so the
+  # demo has the LAB-0005 PRINTER the collector's signal resolves to.
+  app:
+    build:
+      context: ../..
+      dockerfile: infra/Dockerfile
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgresql://oat:oat_dev_password@postgres:5432/oat
+      NODE_ENV: production
+      AUTH_SECRET: oat_local_demo_secret_change_me_in_any_real_deploy
+      AUTH_TRUST_HOST: 'true'
+      OAT_SEED_ON_START: '1'
+      OAT_SAP_CLIENT: mock
+      # Scan is the fallback floor; SNMP is OFF on the app — the COLLECTOR does the polling,
+      # the app only ingests what the collector pushes.
+      OAT_CONNECTOR_SCAN: '1'
+      # The per-collector bearer registry: this app accepts collector `collector-demo`.
+      OAT_COLLECTOR_TOKENS: 'collector-demo:demo_collector_token'
+    ports:
+      - '3000:3000'
+    healthcheck:
+      # busybox wget ships in node:alpine. The collector waits for this before pushing.
+      test: ['CMD-SHELL', 'wget -qO- http://localhost:3000/api/health || exit 1']
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  # The emulated SNMP printer — a rising Printer-MIB page counter, entirely inside this network.
+  snmpsim:
+    build:
+      context: ../snmpsim
+      dockerfile: Dockerfile
+    restart: unless-stopped
+
+  # The on-LAN collector. Runs the real collector process (packages/collector), polls the
+  # emulated printer over SNMP, and pushes outbound to the app. No DATABASE_URL — it never
+  # touches the database.
+  collector:
+    build:
+      context: ../..
+      dockerfile: infra/collector.Dockerfile
+    restart: unless-stopped
+    environment:
+      OAT_URL: http://app:3000
+      OAT_COLLECTOR_ID: collector-demo
+      OAT_COLLECTOR_TOKEN: demo_collector_token
+      # Poll fast so the demo shows a delta in seconds, not the 15-minute production cadence.
+      OAT_COLLECTOR_POLL_INTERVAL_MS: '10000'
+      OAT_CONNECTOR_SNMP: '1'
+      OAT_SNMP_TARGETS: LAB-0005@snmpsim:161
+      OAT_SNMP_COMMUNITY: public
+    depends_on:
+      app:
+        condition: service_healthy
+      snmpsim:
+        condition: service_started
