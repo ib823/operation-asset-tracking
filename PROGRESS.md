@@ -6,6 +6,14 @@ Living log. Update after every milestone. Read with `CLAUDE.md` at session start
 
 **Phase 3 — Additional connectors: COMPLETE.** Awaiting the phase gate. Phase 4 next.
 
+> **On-LAN Collector (add-on, ADR-0021).** A MID-Server-equivalent that runs inside a customer
+> LAN, collects via SNMP/subnet-sweep/osquery(Fleet), and pushes **outbound-only** to OAT, where
+> signals attach to known assets via the existing pipeline (never creating one). Built across its
+> own phases 0–7 — see `docs/collector/PROGRESS.md`, `docs/collector/INSPECTION.md`,
+> `docs/collector/DEMO.md`, `docs/decisions/0021-onlan-collector.md`, and `docs/PROD_READINESS.md`.
+> Tracked on `feat/collector-onlan` / PR #7. It is an independent add-on and does not change the
+> Phase 3 → 4 plan above.
+
 ## Task list
 
 ### Phases 0–2 — done

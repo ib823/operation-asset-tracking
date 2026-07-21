@@ -3,18 +3,18 @@
 Living log for the on-LAN Collector work (ADR-0021). Read with `docs/collector/INSPECTION.md`.
 The top-level `PROGRESS.md` covers the OAT product; this file covers the collector module.
 
-## Status: Phase 5 complete (packaging + demo built; compose smoke runs in CI). Phase 6 next.
+## Status: Phases 0–7 complete. PR #7 open; CI validating DB/e2e/docker/compose gates.
 
-| Phase | What                                      | Gate                                                     | State |
-| ----- | ----------------------------------------- | -------------------------------------------------------- | ----- |
-| 0     | Inspect & reconcile PART-B facts          | INSPECTION.md written, no code changed                   | ✅    |
-| 1     | Design — ADR-0021 + REFERENCES.md         | ADR vs every invariant; refs cited                       | ✅    |
-| 2     | Scaffold + shared collect/normalise split | build+typecheck+all tests+licence green, zero regression | ✅    |
-| 3     | Collection modules + SNMP proof           | module tests + SNMP integration vs emulator green        | ✅    |
-| 4     | Outbound channel + enrollment + ingest    | integration + invariant tests green                      | ✅    |
-| 5     | Packaging + self-contained live demo      | compose demo → real signal on seeded asset in UI         | ✅    |
-| 6     | Security review, docs, PR(s)              | CI green, checklist, merged                              | ⏳    |
-| 7     | Production-readiness capstone             | PROD_READINESS.md CLOSED vs REQUIRES-EXTERNAL            | ⏳    |
+| Phase | What                                      | Gate                                                     | State    |
+| ----- | ----------------------------------------- | -------------------------------------------------------- | -------- |
+| 0     | Inspect & reconcile PART-B facts          | INSPECTION.md written, no code changed                   | ✅       |
+| 1     | Design — ADR-0021 + REFERENCES.md         | ADR vs every invariant; refs cited                       | ✅       |
+| 2     | Scaffold + shared collect/normalise split | build+typecheck+all tests+licence green, zero regression | ✅       |
+| 3     | Collection modules + SNMP proof           | module tests + SNMP integration vs emulator green        | ✅       |
+| 4     | Outbound channel + enrollment + ingest    | integration + invariant tests green                      | ✅       |
+| 5     | Packaging + self-contained live demo      | compose demo → real signal on seeded asset in UI         | ✅       |
+| 6     | Security review, docs, PR(s)              | CI green, checklist, merged                              | 🔄 PR #7 |
+| 7     | Production-readiness capstone             | PROD_READINESS.md CLOSED vs REQUIRES-EXTERNAL            | ✅       |
 
 ## Done so far
 
