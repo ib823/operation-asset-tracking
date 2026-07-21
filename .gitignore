@@ -23,3 +23,11 @@ licences.json
 sbom.json
 
 .DS_Store
+
+# Vercel CLI / Marketplace (Neon) integration — local artefacts, never committed
+.vercel
+app/.vercel
+app/.gitignore
+app/.agents/
+app/.claude/
+app/skills-lock.json
