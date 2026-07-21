@@ -48,6 +48,37 @@ else
     || echo "WARN: Claude Code CLI install failed; run 'npm install -g --prefix ~/.npm-global @anthropic-ai/claude-code' by hand."
 fi
 
+# GitHub CLI (gh) — dev-container convenience so PRs open from the terminal (`gh pr create`),
+# closing the "no gh after rebuild" gap. This Alpine image gives the node user no root
+# (no sudo, so apk is out), so install rootless: drop the official static binary into
+# ~/.npm-global/bin, already on PATH via the remoteEnv in devcontainer.json. Idempotent;
+# non-fatal — a missing gh just means opening PRs in the browser, never a broken Codespace.
+# Authenticate once per Codespace with `gh auth login` (or export GH_TOKEN).
+install_gh() {
+  local ver arch tmp v
+  case "$(uname -m)" in
+    x86_64) arch=amd64 ;;
+    aarch64 | arm64) arch=arm64 ;;
+    *) echo "WARN: unsupported arch $(uname -m); skipping gh"; return 1 ;;
+  esac
+  ver="$(node -e "fetch('https://api.github.com/repos/cli/cli/releases/latest').then(r=>r.json()).then(j=>process.stdout.write(j.tag_name||''))" 2>/dev/null)" || return 1
+  [ -n "$ver" ] || return 1
+  v="${ver#v}"
+  tmp="$(mktemp -d)"
+  node -e "const fs=require('fs');fetch('https://github.com/cli/cli/releases/download/${ver}/gh_${v}_linux_${arch}.tar.gz').then(r=>{if(!r.ok)throw new Error('HTTP '+r.status);return r.arrayBuffer()}).then(b=>fs.writeFileSync('${tmp}/gh.tgz',Buffer.from(b)))" || { rm -rf "$tmp"; return 1; }
+  tar xzf "${tmp}/gh.tgz" -C "$tmp" || { rm -rf "$tmp"; return 1; }
+  mkdir -p "$HOME/.npm-global/bin"
+  cp "${tmp}/gh_${v}_linux_${arch}/bin/gh" "$HOME/.npm-global/bin/gh" || { rm -rf "$tmp"; return 1; }
+  rm -rf "$tmp"
+  echo "Installed $("$HOME/.npm-global/bin/gh" --version | head -1)."
+}
+if command -v gh >/dev/null 2>&1; then
+  echo "GitHub CLI already present ($(command -v gh))."
+else
+  echo "Installing GitHub CLI (rootless, static binary under ~/.npm-global)…"
+  install_gh || echo "WARN: GitHub CLI install failed; open PRs via the GitHub web UI instead."
+fi
+
 cat <<'BANNER'
 
   Lablink OAT is ready.
