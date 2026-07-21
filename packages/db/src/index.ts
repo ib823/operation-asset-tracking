@@ -3,30 +3,23 @@ import { PrismaClient } from '@prisma/client'
 export * from '@prisma/client'
 
 /**
- * Resolve the connection string, preferring Neon's POOLED (pgBouncer) endpoint on serverless.
+ * Resolve the connection string, always using Neon's DIRECT (session-mode) endpoint.
  *
- * On Vercel the app runs as many short-lived function instances. Each plain Prisma client
- * opens its own TCP connection to Postgres; pointed at Neon's DIRECT (`-pooler`-less) host
- * those connections fan out until Neon's ceiling is hit, and a cold autosuspended compute is
- * woken on the first hit — which reads as a stalled request. Neon's Vercel integration also
- * publishes `POSTGRES_PRISMA_URL`: the same database via the `-pooler` (pgBouncer) host, which
- * multiplexes the fan-out and carries `connect_timeout=15` so a stuck connect FAILS FAST
- * rather than hanging forever.
+ * NEVER the `-pooler` (pgBouncer transaction-mode) endpoint. Under transaction pooling,
+ * Prisma's normal queries — `findMany` and friends, which use the extended query protocol —
+ * silently HANG (the render never resolves; the function runs to its timeout with no error
+ * thrown), while a raw `SELECT 1` still succeeds. That asymmetry is why ADR-0023 / PR #17,
+ * verified only with `/api/health` (a `SELECT 1`), read green while every real data page was
+ * wedged on "Loading…". `pgbouncer=true` did not save it. See ADR-0024.
  *
- * Through pgBouncer's transaction pooling, prepared statements must be disabled or Prisma hits
- * intermittent "prepared statement already exists" errors — `pgbouncer=true` does that. We add
- * it if Neon's URL did not already include it.
- *
- * Precedence: `POSTGRES_PRISMA_URL` (Vercel/Neon prod) → `DATABASE_URL` (local docker, direct
- * seed/job connections, CI). The pooled var is absent locally and in CI, so those paths are
- * untouched.
+ * `DATABASE_URL` is the direct host in prod and locally (docker). On Vercel preview/dev it is
+ * unset — there Neon's `DATABASE_URL_UNPOOLED` / `POSTGRES_URL_NON_POOLING` name the same
+ * direct host, so those environments connect too (and can be verified before promotion). The
+ * modest serverless fan-out this reintroduces is the state that demonstrably rendered every
+ * page before PR #17; the "connection hang" #17 chased was never reproduced.
  */
 function resolvePrismaUrl(): string | undefined {
-  const pooled = process.env.POSTGRES_PRISMA_URL
-  if (!pooled) return process.env.DATABASE_URL
-  const url = new URL(pooled)
-  if (!url.searchParams.has('pgbouncer')) url.searchParams.set('pgbouncer', 'true')
-  return url.toString()
+  return process.env.DATABASE_URL ?? process.env.DATABASE_URL_UNPOOLED ?? process.env.POSTGRES_URL_NON_POOLING
 }
 
 /**
