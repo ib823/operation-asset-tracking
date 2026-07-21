@@ -1,7 +1,7 @@
 # 23. The serverless app connects to Neon through the pooled (pgBouncer) endpoint
 
 Date: 2026-07-21
-Status: Accepted
+Status: Superseded by ADR-0024 — the pooled endpoint hung every real data query (see ADR-0024).
 
 Relates to ADR-0005 / ADR-0020 (the scheduler is its own process — it, and the seed, keep
 using a direct connection), and the Vercel deploy config in PR #11.
