@@ -23,7 +23,14 @@ test('data pages paint real, VISIBLE rows in a real browser', async ({ page, con
   page.on('console', (m) => {
     if (m.type() === 'error') problems.push(`console.error: ${m.text()}`)
   })
-  page.on('requestfailed', (r) => problems.push(`requestfailed: ${r.url()} ${r.failure()?.errorText ?? ''}`))
+  page.on('requestfailed', (r) => {
+    // Next.js <Link> prefetches the RSC payload of in-viewport links, then aborts those it no
+    // longer needs — `net::ERR_ABORTED` on a `?_rsc=` URL is expected and does not affect the
+    // page that actually rendered. Only genuine failures are problems.
+    const err = r.failure()?.errorText ?? ''
+    if (err === 'net::ERR_ABORTED') return
+    problems.push(`requestfailed: ${r.url()} ${err}`)
+  })
 
   // Programmatic Auth.js v5 credentials login → carry the session cookie into the browser.
   const api = await pwRequest.newContext({ baseURL: BASE })
