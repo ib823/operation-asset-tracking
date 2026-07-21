@@ -1,0 +1,39 @@
+name: render-check
+
+# Real-browser DOM check against the deployed app. Runs on push to the diagnostic branch and
+# on demand. Not wired to main — this is a verification harness, not a merge gate (yet).
+on:
+  push:
+    branches: [chore/browser-render-check]
+  workflow_dispatch:
+    inputs:
+      base_url:
+        description: Deployment URL to check
+        default: https://lablink-oat.vercel.app
+
+jobs:
+  render:
+    name: Chromium renders the data pages
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @oat/db exec prisma generate
+      - run: pnpm exec playwright install --with-deps chromium
+      - name: Render check
+        run: pnpm exec playwright test --config playwright.prod.config.ts
+        env:
+          RENDER_CHECK_BASE_URL: ${{ github.event.inputs.base_url || 'https://lablink-oat.vercel.app' }}
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: render-artifacts
+          path: |
+            test-results
+            playwright-report
+          if-no-files-found: ignore
