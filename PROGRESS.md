@@ -22,6 +22,16 @@ Living log. Update after every milestone. Read with `CLAUDE.md` at session start
 > computed printer utilisation %, guarded by `e2e/phase4-demo-honesty.spec.ts`. Explicit
 > `UNOBSERVED` status is logged as the rigorous next step (ADR-0022 §b).
 
+> **Dev-container tools persist (ADR-0025).** `claude: not found` kept recurring after a
+> Codespace Stop→Start resume (not only full rebuilds). Two gaps: the CLI installs ran in
+> `postCreateCommand` (create/rebuild only, never resume), and `~/.npm-global/bin` was on PATH
+> only via `remoteEnv` (VS Code terminals only — not `/bin/sh -l` or `gh cs ssh`). Fixed:
+> installs moved to `.devcontainer/ensure-tools.sh` (idempotent, non-fatal), run from a new
+> `postStartCommand` so they self-heal on **every** start, and the script writes the PATH export
+> into `~/.profile` and `~/.bashrc` so every shell resolves the CLIs. Verified: after a rebuild,
+> a resume, and a fresh `/bin/sh -l`, `command -v claude` and `command -v gh` both resolve with
+> zero manual steps. `post-create.sh` keeps only create-only work and calls `ensure-tools.sh`.
+
 ## Task list
 
 ### Phases 0–2 — done

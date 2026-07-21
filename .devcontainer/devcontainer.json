@@ -32,8 +32,16 @@
   },
   "forwardPorts": [3000, 5432],
   "postCreateCommand": "bash .devcontainer/post-create.sh",
-  // Keep user-globally installed CLIs (Claude Code — see post-create.sh) on PATH across
-  // rebuilds/reconnects. Dev-container-only; does not affect the app image or its runtime.
+  // postCreate runs on create/rebuild ONLY — never on a Stop→Start resume. The convenience
+  // CLIs (Claude Code, gh) live in the node:22-alpine runtime, which does not bake them in, so
+  // they vanished on reconnect. postStart re-runs ensure-tools.sh on EVERY container start
+  // (resume included), self-healing `claude: not found` with zero manual steps. Idempotent.
+  // See docs/decisions/0025-devcontainer-tools-persist-via-poststart.md.
+  "postStartCommand": "bash .devcontainer/ensure-tools.sh",
+  // Keep user-globally installed CLIs (Claude Code, gh) on PATH for the VS Code terminal
+  // immediately. This only reaches VS Code-spawned shells, so ensure-tools.sh also writes the
+  // PATH export into ~/.profile and ~/.bashrc for plain /bin/sh and `gh cs ssh` login shells.
+  // Dev-container-only; does not affect the app image or its runtime.
   "remoteEnv": {
     "PATH": "/home/node/.npm-global/bin:${containerEnv:PATH}"
   },
