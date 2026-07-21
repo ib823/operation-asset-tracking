@@ -17,6 +17,9 @@ const env = {
   // silently disabling the gate (ADR-0012).
   AUTH_TRUST_HOST: 'true',
   OAT_SERVICE_TOKEN: process.env.OAT_SERVICE_TOKEN ?? 'e2e_service_token',
+  // A per-collector bearer for the on-LAN collector ingest endpoint (ADR-0021). One entry:
+  // id `collector-e2e`. The collector spec pushes signals as this collector.
+  OAT_COLLECTOR_TOKENS: process.env.OAT_COLLECTOR_TOKENS ?? 'collector-e2e:e2e_collector_token',
   OAT_SEED_PASSWORD: process.env.OAT_SEED_PASSWORD ?? 'devpassword123',
   OAT_SAP_CLIENT: 'mock',
   // The scheduler runs as its own process (ADR-0020) and is deliberately NOT started here: a

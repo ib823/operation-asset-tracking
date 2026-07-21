@@ -161,3 +161,16 @@ jobs:
           push: false
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+  collector-demo:
+    name: Collector live demo (compose smoke)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Brings up postgres + app + emulated SNMP printer + the on-LAN collector, and asserts —
+      # against the database — that the collector delivered a REAL SNMP utilisation signal to the
+      # seeded LAB-0005 asset (ADR-0021, GATE 5). This also builds infra/collector.Dockerfile, so
+      # a broken collector image fails here. Entirely inside the compose network; no external net.
+      - name: Collector demo smoke test
+        run: sh infra/collector-demo/smoke.sh

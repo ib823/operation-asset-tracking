@@ -20,6 +20,9 @@
       "path": "./packages/jobs"
     },
     {
+      "path": "./packages/collector"
+    },
+    {
       "path": "./packages/seed"
     }
   ]

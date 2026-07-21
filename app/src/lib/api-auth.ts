@@ -1,6 +1,7 @@
 import { can, type Permission, type Principal } from '@oat/auth'
 import { NextResponse } from 'next/server'
 import { currentPrincipal } from './auth'
+import { checkCollectorToken } from './collector-auth'
 
 /**
  * The API guard: session + RBAC (Phase 1).
@@ -80,4 +81,23 @@ function timingSafeEqual(a: string, b: string): boolean {
     diff |= a.charCodeAt(i) ^ b.charCodeAt(i)
   }
   return diff === 0
+}
+
+export type CollectorGuard = { ok: true; collectorId: string } | { ok: false; response: NextResponse }
+
+/**
+ * Authenticate an on-LAN collector pushing signals (ADR-0021).
+ *
+ * A thin `NextResponse` wrapper over the pure {@link checkCollectorToken} decision (kept
+ * framework-free so it is unit-testable). Fail-closed, exactly like {@link requireServiceToken}:
+ * empty registry → `503`, missing/wrong token → `401`.
+ */
+export function requireCollectorAuth(request: Request): CollectorGuard {
+  const decision = checkCollectorToken(
+    process.env,
+    request.headers.get('x-collector-id'),
+    request.headers.get('authorization'),
+  )
+  if (decision.ok) return { ok: true, collectorId: decision.collectorId }
+  return { ok: false, response: NextResponse.json({ error: decision.error }, { status: decision.status }) }
 }

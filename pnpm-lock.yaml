@@ -115,6 +115,28 @@ importers:
         specifier: workspace:*
         version: link:../db
 
+  packages/collector:
+    dependencies:
+      '@oat/connectors':
+        specifier: workspace:*
+        version: link:../connectors
+      '@oat/core':
+        specifier: workspace:*
+        version: link:../core
+      tsx:
+        specifier: ^4.19.2
+        version: 4.23.1
+      zod:
+        specifier: ^3.24.1
+        version: 3.25.76
+    devDependencies:
+      '@types/net-snmp':
+        specifier: ^3.23.0
+        version: 3.23.0
+      net-snmp:
+        specifier: ^3.26.3
+        version: 3.26.3
+
   packages/connectors:
     dependencies:
       '@oat/core':
