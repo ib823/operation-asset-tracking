@@ -4,6 +4,7 @@ import {
   normaliseSubType,
   resolveIdlePolicy,
   subTypeKey,
+  sweepIdleAssets,
   type IdleConfigOverride,
 } from '@oat/core'
 import { prisma } from '@oat/db'
@@ -121,6 +122,12 @@ export async function PUT(request: Request): Promise<NextResponse> {
     after: { thresholdMinutes, alertAfterMinutes: alertAfterMinutes ?? null },
   })
 
+  // Re-derive immediately, not just on the next scheduled sweep. Signals are the source of
+  // truth and the config is read fresh on every projection (ADR-0006), so a threshold change
+  // RECOMPUTES idle/alerts over existing history rather than discarding it — the banner's
+  // promise. This also makes the change visible where no worker runs (e.g. serverless).
+  await sweepIdleAssets(prisma)
+
   return NextResponse.json(saved)
 }
 
@@ -147,6 +154,10 @@ export async function DELETE(request: Request): Promise<NextResponse> {
     before: { existed: true },
     after: { existed: false },
   })
+
+  // Clearing an override falls back down the chain (ADR-0014); re-derive so idle/alerts
+  // reflect the restored threshold immediately, not on the next sweep.
+  await sweepIdleAssets(prisma)
 
   return NextResponse.json({ cleared: deleted.count })
 }
