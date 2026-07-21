@@ -4,6 +4,7 @@ import { listAssets } from '@oat/core'
 import { prisma } from '@oat/db'
 import Link from 'next/link'
 import { StatusBadge } from '@/components/status-badge'
+import { StatusFilterSelect } from './status-filter-select'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { formatAssetClass, formatDateTime, formatDuration, minutesSince } from '@/lib/format'
 
@@ -63,18 +64,8 @@ export default async function AssetsPage({ searchParams }: { searchParams: Promi
           aria-label="Search assets"
           className="h-9 min-w-64 flex-1 rounded-md border border-input bg-background px-3 text-sm"
         />
-        <select
-          name="status"
-          defaultValue={params.status ?? ''}
-          aria-label="Filter by status"
-          className="h-9 rounded-md border border-input bg-background px-3 text-sm"
-        >
-          <option value="">All statuses</option>
-          <option value="IN_USE">In use</option>
-          <option value="IDLE">Idle</option>
-          <option value="UNDER_REPAIR">Under repair</option>
-          <option value="RETIRED">Retired</option>
-        </select>
+        {/* Applies on change (client component); the Filter button stays as a no-JS fallback. */}
+        <StatusFilterSelect defaultValue={params.status ?? ''} />
         {params.site ? <input type="hidden" name="site" value={params.site} /> : null}
         <button type="submit" className="h-9 rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground">
           Filter
