@@ -30,6 +30,7 @@
   "devDependencies": {
     "@eslint/js": "^9.17.0",
     "@oat/db": "workspace:*",
+    "@oat/seed": "workspace:*",
     "@playwright/test": "^1.49.1",
     "@types/node": "^22.10.5",
     "eslint": "^9.17.0",

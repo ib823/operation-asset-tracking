@@ -14,6 +14,9 @@ importers:
       '@oat/db':
         specifier: workspace:*
         version: link:packages/db
+      '@oat/seed':
+        specifier: workspace:*
+        version: link:packages/seed
       '@playwright/test':
         specifier: ^1.49.1
         version: 1.61.1

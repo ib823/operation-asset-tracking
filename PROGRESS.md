@@ -14,6 +14,14 @@ Living log. Update after every milestone. Read with `CLAUDE.md` at session start
 > Delivered in PR #7 (**merged** to `main`, CI green). It is an independent add-on and does not change the
 > Phase 3 → 4 plan above.
 
+> **Demo honesty (ADR-0022).** A live review found the seed wrote `status: IN_USE` as a literal,
+> so never-observed assets showed a confident "In use" — a crack in the never-claim-what-we-
+> haven't-measured ethos. Fixed: the seed now seeds real signals (scan / SOTI / SNMP) and the
+> **engine** derives status, idle, alerts and the utilisation % — nothing hardcoded. Every asset
+> is observation-backed (`lastSeenAt` never null); the demo shows idle + an open alert + a
+> computed printer utilisation %, guarded by `e2e/phase4-demo-honesty.spec.ts`. Explicit
+> `UNOBSERVED` status is logged as the rigorous next step (ADR-0022 §b).
+
 ## Task list
 
 ### Phases 0–2 — done

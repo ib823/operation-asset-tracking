@@ -1,6 +1,7 @@
 import { hashPassword } from '@oat/auth/server'
 import { normaliseSubType } from '@oat/core'
 import { PrismaClient, type AssetClass, type Role } from '@oat/db'
+import { seedDemoSignals } from './demo-signals'
 
 /**
  * Phase 0 seed: 3 representative sites and 10 assets.
@@ -161,7 +162,9 @@ async function main(): Promise<void> {
         subType: normaliseSubType(asset.subType),
         siteId,
         location: asset.location,
-        status: 'IN_USE',
+        // Status is NOT asserted here. It is derived from seeded signals by the real engine
+        // (see `seedDemoSignals` / ADR-0022) — the demo must never claim a status it has not
+        // observed. The DB default only bootstraps the column before the first projection.
         attributes: { serial: asset.serial ?? null, manufacturer: asset.manufacturer ?? null },
       },
       update: { name: asset.name, siteId, location: asset.location, subType: normaliseSubType(asset.subType) },
@@ -170,7 +173,15 @@ async function main(): Promise<void> {
 
   await seedUsers(siteIds)
 
-  console.log(`Seeded ${SITES.length} sites, ${ASSETS.length} assets and ${USERS.length} users.`)
+  // Make every asset's operational state observation-backed: seed real signals and let the
+  // engine derive status / idle / alerts / utilisation (never a literal). See ADR-0022.
+  const demo = await seedDemoSignals(prisma)
+
+  console.log(
+    `Seeded ${SITES.length} sites, ${ASSETS.length} assets and ${USERS.length} users. ` +
+      `Derived from ${demo.seededSignals} signals: ${demo.reprojected.length} assets reprojected, ` +
+      `${demo.rollup.written} utilisation snapshot(s) written.`,
+  )
 }
 
 interface SeedUser {
