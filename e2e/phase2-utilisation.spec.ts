@@ -8,13 +8,23 @@ import { apiAs, fetchAsset, resetOperational, SERVICE_AUTH, signIn, USERS } from
 
 test.beforeEach(resetOperational)
 
+// Asia/Kuala_Lumpur — the rollup's DEFAULT_TIMEZONE (ADR-0015) — is permanently UTC+8, no DST;
+// the same invariant packages/core's localDayBounds relies on.
+const KL_OFFSET_MS = 8 * 60 * 60_000
+
 /** A day of 5-minute polls: busy for the first `busyHours`, quiet afterwards. */
 function dayOfPolls(assetRef: string, opts: { hours: number; busyHours: number; dayOffset?: number }) {
   const { hours, busyHours, dayOffset = 1 } = opts
 
-  // Anchor inside yesterday's local (UTC+8) day so the rollup's default period covers it.
-  const start = new Date(Date.now() - dayOffset * 24 * 60 * 60_000)
-  start.setUTCHours(2, 0, 0, 0)
+  // Anchor the polls at 10:00 KL of the rollup's target local day (default: yesterday) so the
+  // whole window lands inside the rollup's KL-local-day period. The old `setUTCHours(2, …)` kept
+  // the UTC calendar date of `now - dayOffset·24h`; whenever CI runs past 16:00 UTC (= KL
+  // midnight) that UTC date is a day behind the KL day the rollup actually rolls up, so every
+  // poll fell outside the window and the rollup wrote zero snapshots — green before 16:00 UTC,
+  // red after. Deriving the KL day directly is stable at any wall-clock run time.
+  const target = Date.now() - dayOffset * 24 * 60 * 60_000
+  const klMidnightUtcMs = Math.floor((target + KL_OFFSET_MS) / 86_400_000) * 86_400_000 - KL_OFFSET_MS
+  const start = new Date(klMidnightUtcMs + 10 * 60 * 60_000) // 10:00 KL — deep inside the day
 
   const reports = []
   for (let i = 0; i * 5 <= hours * 60; i++) {

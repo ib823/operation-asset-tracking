@@ -43,6 +43,9 @@ test.describe('UI polish', () => {
     await page.goto('/assets')
 
     const link = page.locator('[data-testid="asset-row"][data-tag="LAB-0005"] a')
+    // Gate on the link being rendered before focusing it: focus() on a not-yet-painted row
+    // races the RSC render and lands as "inactive" (the retry-flake this test showed in CI).
+    await expect(link).toBeVisible()
     await link.focus()
     await expect(link).toBeFocused()
     await page.keyboard.press('Enter')
@@ -55,10 +58,11 @@ test.describe('UI polish', () => {
     const { context, page } = await signIn(browser, USERS.labManager)
 
     await page.goto('/assets')
-    await page
-      .locator('[data-testid="asset-row"][data-tag="LAB-0005"]')
-      .getByText('Label Printer TD-4550')
-      .click({ force: true })
+    // Gate on the row being visible before the force-click, exactly as the P2.2 click test
+    // above does — clicking before the RSC render paints the row raced to "not visible" in CI.
+    const row = page.locator('[data-testid="asset-row"][data-tag="LAB-0005"]')
+    await expect(row).toBeVisible()
+    await row.getByText('Label Printer TD-4550').click({ force: true })
     await page.waitForURL(/\/assets\/[a-z0-9]+$/)
 
     const signals = page.locator('[data-testid="signal-row"]').first()
