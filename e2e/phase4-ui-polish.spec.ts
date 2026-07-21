@@ -32,7 +32,8 @@ test.describe('UI polish', () => {
     // still lands on the link and navigates, which is exactly the behaviour under test.
     await row.getByText('Label Printer TD-4550').click({ force: true })
     await page.waitForURL(/\/assets\/[a-z0-9]+$/)
-    await expect(page.getByRole('heading', { level: 1 })).toContainText('LAB-0005')
+    // The detail heading is the asset name; its presence confirms we opened LAB-0005.
+    await expect(page.getByRole('heading', { level: 1 })).toContainText('Label Printer TD-4550')
 
     await context.close()
   })
