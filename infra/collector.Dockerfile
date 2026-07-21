@@ -33,6 +33,16 @@ COPY packages/jobs/package.json ./packages/jobs/
 COPY packages/collector/package.json ./packages/collector/
 RUN pnpm install --frozen-lockfile
 
+# ---- Build ------------------------------------------------------------------------
+# Assemble the installed node_modules (from deps) with the workspace SOURCE. pnpm's workspace
+# layout keeps each package's bin/deps under `packages/<pkg>/node_modules` (symlinks into the
+# root `.pnpm` store), so both the deps-stage node_modules AND the source must be present, or
+# `tsx` (a per-package bin) is missing at runtime.
+FROM base AS build
+COPY --from=deps /app/node_modules ./node_modules
+COPY --from=deps /app/packages ./packages
+COPY . .
+
 # ---- Runtime ----------------------------------------------------------------------
 FROM base AS runtime
 ENV NODE_ENV=production
@@ -41,12 +51,14 @@ ENV NODE_ENV=production
 # not wait out the kill timeout).
 RUN apk add --no-cache tini
 
-COPY --from=deps --chown=node:node /app/node_modules ./node_modules
-COPY --chown=node:node package.json pnpm-lock.yaml pnpm-workspace.yaml ./
-# The collector runs from TypeScript source via tsx. It imports @oat/connectors and @oat/core;
-# those import @oat/db only as TYPES (erased at runtime), so no Prisma client is ever loaded —
-# but the workspace packages must be present for pnpm to resolve them.
-COPY --chown=node:node packages ./packages
+# Only what the collector runs: node_modules (incl. per-package .bin/tsx) + the workspace
+# source + the manifests pnpm needs to resolve the workspace. No app/, no e2e/, no Prisma
+# client (the collector imports @oat/db only as TYPES, erased at runtime — it loads no DB).
+COPY --from=build --chown=node:node /app/node_modules ./node_modules
+COPY --from=build --chown=node:node /app/packages ./packages
+COPY --from=build --chown=node:node /app/package.json ./package.json
+COPY --from=build --chown=node:node /app/pnpm-lock.yaml ./pnpm-lock.yaml
+COPY --from=build --chown=node:node /app/pnpm-workspace.yaml ./pnpm-workspace.yaml
 
 # Non-root: the collector needs no privileged ports (it dials out) and no filesystem writes.
 USER node
