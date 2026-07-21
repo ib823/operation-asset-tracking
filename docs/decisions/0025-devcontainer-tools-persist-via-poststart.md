@@ -55,7 +55,7 @@ reaching every shell:
 ## Consequences
 
 - After a Rebuild, a Stop→Start resume, or opening a fresh `/bin/sh -l`, both `command -v
-  claude` and `command -v gh` resolve with no manual steps.
+claude` and `command -v gh` resolve with no manual steps.
 - `postStartCommand` adds a few seconds to each start; the idempotency guards keep it a fast
   no-op once the tools and PATH lines are in place (no reinstall, no duplicate profile lines).
 - The tool installs exist in exactly one file, so there is one place to update a version or
