@@ -1,5 +1,54 @@
 # Demos
 
+## App walkthrough — the money story
+
+The fastest way to show what the OAT is _for_: sign in, find an under-used asset, and see the
+evidence behind the number. Every figure below is **engine-derived from seeded signals**
+(ADR-0022) — none is hardcoded.
+
+**Where.** The deployed app, or `docker compose -f infra/docker-compose.yml up` (app on
+<http://localhost:3000>).
+
+**Sign-in — seeded users, password `devpassword123`:**
+
+| Role           | Email                        | Sees                                 |
+| -------------- | ---------------------------- | ------------------------------------ |
+| HQ Lab Manager | `labmanager@lablink.example` | all 3 sites — the demo driver        |
+| Branch (KL01)  | `branch.kl@lablink.example`  | **KL01 only** — the RBAC moment      |
+| Branch (PJ02)  | `branch.pj@lablink.example`  | PJ02 only                            |
+| Finance        | `finance@lablink.example`    | register (no idle-policy management) |
+| IT             | `it@lablink.example`         | register + policy                    |
+| Developer      | `developer@lablink.example`  | full access                          |
+
+**Click-path (as `labmanager@`):**
+
+1. **Dashboard** — the tiles show a non-zero **Idle** count and **Idle alerts** count; the
+   per-site bars carry a legend; PJ02 shows a computed **utilisation %** (other sites honestly
+   read "not measured", never 0%).
+2. **Alerts** — one **open idle alert**: the Reporting Workstation (**LAB-0004**, KL01) idle
+   ~9 days, past its 7-day threshold, with idle-for / threshold / idle-since.
+3. Open **LAB-0004** — status **Idle**; under **Recent signals**, the MDM (SOTI) idle report
+   that is the evidence. "Activity comes from" names the sources that count; the threshold shows
+   its provenance ("provisional default" until a human sets it).
+4. Open **LAB-0005** (the printer) — real **SNMP utilisation** (values read `Busy` / `Reachable`,
+   each with Observed vs Ingested timestamps) and a computed utilisation %. This is the live
+   collector's signal (see the SNMP demo below).
+5. **RBAC moment** — sign out, sign in as `branch.kl@`: Dashboard, Assets and Alerts now show
+   **KL01 only**. A branch user opening another site's asset by id gets a branded not-found,
+   never a leak (verified in `e2e/phase1-auth.spec.ts`).
+
+**Idle-policy Save** (`/settings/idle-policy`, as `labmanager@`) — change a class threshold and
+Save: idle/alerts **re-derive immediately** over existing history (the banner is real, not copy —
+`e2e/phase4-idle-policy.spec.ts`), and the value's provenance flips from "provisional default" to
+a set value.
+
+**Warm-up (serverless).** On a cold serverless deploy the first hit to a page can be slow. Before
+presenting, load Dashboard, Assets and Alerts once so they are warm — or use the local
+`docker compose` path, which has no cold start. Note the scheduler/worker does not run on
+serverless, so time-based IN_USE→IDLE transitions and the nightly rollup need a worker elsewhere;
+the demo state is seeded and the collector→ingest path is synchronous, so neither is required to
+present.
+
 ## SNMP live-signal demo
 
 **What it shows.** The OAT polls a **real SNMP device** over the wire and records **real
