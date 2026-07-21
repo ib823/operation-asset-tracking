@@ -38,7 +38,7 @@ test('saving a class threshold re-derives idle + alerts immediately, and clearin
   expect(alertsBefore.length).toBeGreaterThanOrEqual(1)
 
   // Raise the IT idle threshold well above its ~9-day idle → it is no longer idle.
-  const save = await api.request.post('/api/idle-config', {
+  const save = await api.request.put('/api/idle-config', {
     data: { scope: 'CLASS', key: 'IT', thresholdMinutes: 200_000 },
   })
   expect(save.ok(), `save -> ${save.status()}`).toBeTruthy()
