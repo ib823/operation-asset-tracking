@@ -26,8 +26,11 @@ test.describe('UI polish', () => {
     const row = page.locator('[data-testid="asset-row"][data-tag="LAB-0005"]')
     await expect(row).toBeVisible()
 
-    // Click the NAME cell, not the tag link — the stretched link must carry the whole row.
-    await row.getByText('Label Printer TD-4550').click()
+    // Click the NAME cell, not the tag link. `force` is deliberate: the stretched link's
+    // pseudo-element deliberately COVERS the cell (that is what makes the whole row clickable),
+    // so Playwright's obscured-element check would otherwise reject the click — the real click
+    // still lands on the link and navigates, which is exactly the behaviour under test.
+    await row.getByText('Label Printer TD-4550').click({ force: true })
     await page.waitForURL(/\/assets\/[a-z0-9]+$/)
     await expect(page.getByRole('heading', { level: 1 })).toContainText('LAB-0005')
 
@@ -51,7 +54,10 @@ test.describe('UI polish', () => {
     const { context, page } = await signIn(browser, USERS.labManager)
 
     await page.goto('/assets')
-    await page.locator('[data-testid="asset-row"][data-tag="LAB-0005"]').getByText('Label Printer TD-4550').click()
+    await page
+      .locator('[data-testid="asset-row"][data-tag="LAB-0005"]')
+      .getByText('Label Printer TD-4550')
+      .click({ force: true })
     await page.waitForURL(/\/assets\/[a-z0-9]+$/)
 
     const signals = page.locator('[data-testid="signal-row"]').first()
