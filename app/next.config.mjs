@@ -5,6 +5,18 @@ const nextConfig = {
   // them itself, which keeps the monorepo free of a watch-and-rebuild cycle in dev.
   transpilePackages: ['@oat/core', '@oat/db', '@oat/sap', '@oat/connectors', '@oat/auth', '@oat/jobs'],
   outputFileTracingRoot: new URL('..', import.meta.url).pathname,
+  // Force the Prisma query engine (a native .node binary loaded at RUNTIME) into the
+  // serverless function trace. `serverExternalPackages` stops Next bundling Prisma, but the
+  // engine is dlopen'd via a dynamic path, so static tracing does not follow it — on Vercel
+  // that surfaces as `PrismaClientInitializationError: could not locate the Query Engine for
+  // runtime "rhel-openssl-3.0.x"`. Globs are relative to this file's dir (app/); the engine
+  // lives in the workspace-root pnpm store. See https://pris.ly/d/engine-not-found-nextjs.
+  outputFileTracingIncludes: {
+    '/**': [
+      '../node_modules/.pnpm/@prisma+client*/node_modules/.prisma/client/*.node',
+      '../node_modules/.pnpm/@prisma+client*/node_modules/.prisma/client/schema.prisma',
+    ],
+  },
   // Prisma's engine is a native binary; Next must not try to bundle it into the server build.
   //   @prisma/client  — ships a native engine binary
   //   net-snmp        — requires Node's `dgram`/`net`, which have no bundler equivalent
