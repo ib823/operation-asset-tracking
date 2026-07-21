@@ -64,32 +64,35 @@ export default async function DashboardPage() {
           {sites.length === 0 ? (
             <p className="text-sm text-muted-foreground">No sites configured yet.</p>
           ) : (
-            sites.map((site) => (
-              <div key={site.siteId} data-testid="site-row" data-site-code={site.siteCode} className="space-y-2">
-                <div className="flex flex-wrap items-baseline justify-between gap-2">
-                  <Link href={`/assets?site=${site.siteId}`} className="text-sm font-medium hover:underline">
-                    {site.siteCode} · {site.siteName}
-                  </Link>
-                  <span className="text-sm text-muted-foreground">
-                    <span data-testid="site-in-use-count">{site.inUse}</span> in use ·{' '}
-                    <span data-testid="site-idle-count">{site.idle}</span> idle ·{' '}
-                    <Utilisation site={utilisationBySite.get(site.siteId)} />
-                  </span>
-                </div>
+            <>
+              <Legend />
+              {sites.map((site) => (
+                <div key={site.siteId} data-testid="site-row" data-site-code={site.siteCode} className="space-y-2">
+                  <div className="flex flex-wrap items-baseline justify-between gap-2">
+                    <Link href={`/assets?site=${site.siteId}`} className="text-sm font-medium hover:underline">
+                      {site.siteCode} · {site.siteName}
+                    </Link>
+                    <span className="text-sm text-muted-foreground">
+                      <span data-testid="site-in-use-count">{site.inUse}</span> in use ·{' '}
+                      <span data-testid="site-idle-count">{site.idle}</span> idle ·{' '}
+                      <Utilisation site={utilisationBySite.get(site.siteId)} />
+                    </span>
+                  </div>
 
-                {/* A stacked bar, not a colour-only cue: the counts above carry the same
+                  {/* A stacked bar, not a colour-only cue: the counts above carry the same
                     information for anyone who cannot distinguish the segments. */}
-                <div
-                  className="flex h-2.5 w-full overflow-hidden rounded-full bg-muted"
-                  role="img"
-                  aria-label={`${site.siteCode}: ${site.inUse} in use, ${site.idle} idle, ${site.underRepair} under repair`}
-                >
-                  <Bar count={site.inUse} total={site.total} className="bg-emerald-500" />
-                  <Bar count={site.idle} total={site.total} className="bg-amber-500" />
-                  <Bar count={site.underRepair} total={site.total} className="bg-sky-500" />
+                  <div
+                    className="flex h-2.5 w-full overflow-hidden rounded-full bg-muted"
+                    role="img"
+                    aria-label={`${site.siteCode}: ${site.inUse} in use, ${site.idle} idle, ${site.underRepair} under repair`}
+                  >
+                    <Bar count={site.inUse} total={site.total} className="bg-emerald-500" />
+                    <Bar count={site.idle} total={site.total} className="bg-amber-500" />
+                    <Bar count={site.underRepair} total={site.total} className="bg-sky-500" />
+                  </div>
                 </div>
-              </div>
-            ))
+              ))}
+            </>
           )}
         </CardContent>
       </Card>
@@ -124,6 +127,28 @@ function Utilisation({ site }: { site?: { utilisationPct: number | null; measure
 function Bar({ count, total, className }: { count: number; total: number; className: string }) {
   if (count === 0 || total === 0) return null
   return <div className={className} style={{ width: `${(count / total) * 100}%` }} />
+}
+
+/**
+ * A key for the stacked bars. Meaning is carried by the LABEL, not the colour alone —
+ * the swatch is decorative, so the chart is legible without colour discrimination.
+ */
+function Legend() {
+  const items = [
+    { label: 'In use', className: 'bg-emerald-500' },
+    { label: 'Idle', className: 'bg-amber-500' },
+    { label: 'Under repair', className: 'bg-sky-500' },
+  ]
+  return (
+    <ul className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground" aria-label="Legend">
+      {items.map((item) => (
+        <li key={item.label} className="flex items-center gap-1.5">
+          <span aria-hidden className={`h-2.5 w-2.5 rounded-sm ${item.className}`} />
+          {item.label}
+        </li>
+      ))}
+    </ul>
+  )
 }
 
 function SummaryTile({ label, value, testId }: { label: string; value: number; testId: string }) {

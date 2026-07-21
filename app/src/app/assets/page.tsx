@@ -105,10 +105,23 @@ export default async function AssetsPage({ searchParams }: { searchParams: Promi
             ) : (
               assets.map((asset) => {
                 const idleFor = asset.status === 'IDLE' ? minutesSince(asset.idleSince, now) : null
+                // The whole row navigates: the tag link is stretched over the row via a
+                // pseudo-element (after:absolute after:inset-0), so a click anywhere opens the
+                // asset while the cell stays a real, focusable, Enter-activatable anchor — no
+                // JS, no div-as-button.
                 return (
-                  <TableRow key={asset.id} data-testid="asset-row" data-tag={asset.tag}>
+                  <TableRow
+                    key={asset.id}
+                    data-testid="asset-row"
+                    data-tag={asset.tag}
+                    className="relative cursor-pointer"
+                  >
                     <TableCell className="font-medium">
-                      <Link href={`/assets/${asset.id}`} className="hover:underline">
+                      <Link
+                        href={`/assets/${asset.id}`}
+                        className="rounded after:absolute after:inset-0 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                        aria-label={`Open ${asset.tag} — ${asset.name}`}
+                      >
                         {asset.tag}
                       </Link>
                     </TableCell>

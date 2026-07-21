@@ -34,12 +34,14 @@ export default async function RootLayout({ children }: { children: React.ReactNo
     <html lang="en">
       <body className="min-h-screen bg-background antialiased">
         <header className="border-b">
-          <div className="mx-auto flex h-14 max-w-7xl items-center gap-6 px-4">
-            <Link href="/" className="font-semibold tracking-tight">
+          <div className="mx-auto flex h-14 max-w-7xl items-center gap-4 px-4">
+            <Link href="/" className="shrink-0 font-semibold tracking-tight">
               Lablink <span className="text-primary">OAT</span>
             </Link>
 
-            <nav className="flex gap-4 text-sm" aria-label="Main">
+            {/* The nav may shrink and scroll on a cramped viewport; the account cluster on the
+                right is `shrink-0`, so Sign out is never pushed off the edge. */}
+            <nav className="flex min-w-0 gap-4 overflow-x-auto whitespace-nowrap text-sm" aria-label="Main">
               {links.map((item) => (
                 <Link key={item.href} href={item.href} className="text-muted-foreground hover:text-foreground">
                   {item.label}
@@ -47,10 +49,10 @@ export default async function RootLayout({ children }: { children: React.ReactNo
               ))}
             </nav>
 
-            <div className="ml-auto flex items-center gap-4">
+            <div className="ml-auto flex shrink-0 items-center gap-4">
               {/* Stated plainly and permanently: the OAT is the operational layer, and SAP
                   remains the financial record. Users must never mistake this for the ledger. */}
-              <span className="hidden text-xs text-muted-foreground lg:block">
+              <span className="hidden max-w-md truncate text-xs text-muted-foreground xl:block">
                 Operational layer · SAP FI-AA remains the financial system of record
               </span>
 
@@ -76,7 +78,11 @@ export default async function RootLayout({ children }: { children: React.ReactNo
                   }}
                   className="flex items-center gap-3"
                 >
-                  <span data-testid="current-user" className="text-xs text-muted-foreground">
+                  <span
+                    data-testid="current-user"
+                    className="hidden max-w-[12rem] truncate text-xs text-muted-foreground sm:block"
+                    title={principal.email}
+                  >
                     {principal.email}
                   </span>
                   <button type="submit" className="text-xs text-muted-foreground underline hover:text-foreground">

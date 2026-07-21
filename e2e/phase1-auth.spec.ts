@@ -192,7 +192,8 @@ test.describe('site scoping', () => {
     await kl.page.goto(`/assets/${pjAsset.id}`)
 
     // 404, not 403: confirming the id exists would itself leak that another site holds it.
-    await expect(kl.page.locator('body')).toContainText(/could not be found/i)
+    // (Branded not-found — "404 — not found" — replaces Next's default page; P2.4.)
+    await expect(kl.page.locator('body')).toContainText(/not found/i)
     await kl.context.close()
   })
 })

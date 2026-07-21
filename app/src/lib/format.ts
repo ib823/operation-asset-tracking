@@ -52,3 +52,38 @@ const CLASS_LABELS: Record<string, string> = {
 export function formatAssetClass(assetClass: string): string {
   return CLASS_LABELS[assetClass] ?? assetClass
 }
+
+const STATUS_LABELS: Record<string, string> = {
+  IN_USE: 'In use',
+  IDLE: 'Idle',
+  UNDER_REPAIR: 'Under repair',
+  RETIRED: 'Retired',
+}
+
+export function formatStatus(status: string): string {
+  return STATUS_LABELS[status] ?? status
+}
+
+/**
+ * A human-readable label for a signal's value, by type. Raw JSON belongs in a tooltip, not
+ * the cell: an operator reads "Busy", a developer hovers for `{"busy":true}`. The observed-
+ * vs-ingested rigor is unchanged — this only renames what a value *says*, never invents one.
+ */
+export function formatSignalValue(type: string, value: unknown): string {
+  const v = (value && typeof value === 'object' ? value : {}) as Record<string, unknown>
+  switch (type) {
+    case 'utilisation':
+      return v.busy === true ? 'Busy' : v.busy === false ? 'Not busy' : 'Utilisation'
+    case 'idle':
+      return typeof v.idleMinutes === 'number' && v.idleMinutes >= 1 ? `Idle ${formatDuration(v.idleMinutes)}` : 'Idle'
+    case 'heartbeat':
+      // Presence, not use (ADR-0008) — say "reachable", never imply activity.
+      return 'Reachable'
+    case 'location':
+      return typeof v.location === 'string' ? `Location: ${v.location}` : 'Location'
+    case 'status':
+      return typeof v.status === 'string' ? `Status: ${formatStatus(v.status)}` : 'Status'
+    default:
+      return type
+  }
+}

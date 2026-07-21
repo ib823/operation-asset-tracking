@@ -7,7 +7,7 @@ import { notFound } from 'next/navigation'
 import { StatusBadge } from '@/components/status-badge'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
-import { formatAssetClass, formatDateTime, formatDuration, minutesSince } from '@/lib/format'
+import { formatAssetClass, formatDateTime, formatDuration, formatSignalValue, minutesSince } from '@/lib/format'
 
 export const dynamic = 'force-dynamic'
 
@@ -166,8 +166,10 @@ export default async function AssetDetailPage({ params }: { params: Promise<{ id
                   <TableRow key={signal.id} data-testid="signal-row">
                     <TableCell className="font-medium">{signal.source}</TableCell>
                     <TableCell>{signal.type}</TableCell>
-                    <TableCell className="max-w-64 truncate font-mono text-xs text-muted-foreground">
-                      {JSON.stringify(signal.value)}
+                    {/* Human label by default; raw JSON on hover keeps the exact value one
+                        gesture away without turning the cell into a dev console. */}
+                    <TableCell className="max-w-64 truncate" title={JSON.stringify(signal.value)}>
+                      {formatSignalValue(signal.type, signal.value)}
                     </TableCell>
                     <TableCell className="whitespace-nowrap text-muted-foreground">
                       {formatDateTime(signal.observedAt)}
