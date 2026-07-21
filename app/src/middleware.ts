@@ -25,12 +25,15 @@ const { auth } = NextAuth(authConfig)
  *   /api/health          a probe; leaks nothing beyond "the database answers"
  *   /api/admin           service-token only (the scheduler's idle sweep)
  *   /api/connectors      service-token only (connector polls)
+ *   /api/collector       per-collector bearer only (the on-LAN collector's outbound push)
  *
- * The last two matter: their callers are machines with no session, so a session check here
+ * The last three matter: their callers are machines with no session, so a session check here
  * would make them permanently unreachable — which is exactly what it did until this was
- * fixed. They enforce `requireServiceToken` themselves, and fail closed when it is unset.
+ * fixed. They enforce their own token (`requireServiceToken` / `requireCollectorAuth`) and
+ * fail closed when it is unset. Adding a machine endpoint without listing it here 401s it in
+ * the Edge gate before its own guard ever runs (ADR-0012) — caught by the collector e2e.
  */
-const SELF_GUARDED = ['/signin', '/api/auth', '/api/health', '/api/admin', '/api/connectors']
+const SELF_GUARDED = ['/signin', '/api/auth', '/api/health', '/api/admin', '/api/connectors', '/api/collector']
 
 export default auth((request) => {
   const { pathname } = request.nextUrl
