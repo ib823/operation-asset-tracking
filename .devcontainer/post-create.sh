@@ -34,6 +34,20 @@ else
     || echo "WARN: Playwright browser install failed; in-container e2e off (CI still runs e2e)."
 fi
 
+# Claude Code CLI — a dev-container convenience, not part of the app or its image. The
+# node:22-alpine runtime does not bake it in, so a rebuild/reconnect dropped it and left
+# `claude: not found`. Install it user-globally under ~/.npm-global (matched by the
+# remoteEnv PATH in devcontainer.json). Idempotent: skip when already on PATH; never fatal —
+# a slow or blocked npm registry must not break Codespace creation.
+export PATH="$HOME/.npm-global/bin:$PATH"
+if command -v claude >/dev/null 2>&1; then
+  echo "Claude Code CLI already present ($(command -v claude))."
+else
+  echo "Installing Claude Code CLI (user-global under ~/.npm-global)…"
+  npm install -g --prefix "$HOME/.npm-global" @anthropic-ai/claude-code \
+    || echo "WARN: Claude Code CLI install failed; run 'npm install -g --prefix ~/.npm-global @anthropic-ai/claude-code' by hand."
+fi
+
 cat <<'BANNER'
 
   Lablink OAT is ready.
