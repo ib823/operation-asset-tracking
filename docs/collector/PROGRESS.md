@@ -3,7 +3,7 @@
 Living log for the on-LAN Collector work (ADR-0021). Read with `docs/collector/INSPECTION.md`.
 The top-level `PROGRESS.md` covers the OAT product; this file covers the collector module.
 
-## Status: Phases 0–7 complete. PR #7 open; CI validating DB/e2e/docker/compose gates.
+## Status: Phases 0–7 complete. PR #7 **merged** to `main` — CI green (unit, e2e, docker, licences, collector-demo compose smoke).
 
 | Phase | What                                      | Gate                                                     | State    |
 | ----- | ----------------------------------------- | -------------------------------------------------------- | -------- |
@@ -13,7 +13,7 @@ The top-level `PROGRESS.md` covers the OAT product; this file covers the collect
 | 3     | Collection modules + SNMP proof           | module tests + SNMP integration vs emulator green        | ✅       |
 | 4     | Outbound channel + enrollment + ingest    | integration + invariant tests green                      | ✅       |
 | 5     | Packaging + self-contained live demo      | compose demo → real signal on seeded asset in UI         | ✅       |
-| 6     | Security review, docs, PR(s)              | CI green, checklist, merged                              | 🔄 PR #7 |
+| 6     | Security review, docs, PR(s)              | CI green, checklist, merged                              | ✅ PR #7 |
 | 7     | Production-readiness capstone             | PROD_READINESS.md CLOSED vs REQUIRES-EXTERNAL            | ✅       |
 
 ## Done so far

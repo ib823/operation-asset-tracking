@@ -11,7 +11,7 @@ Living log. Update after every milestone. Read with `CLAUDE.md` at session start
 > signals attach to known assets via the existing pipeline (never creating one). Built across its
 > own phases 0–7 — see `docs/collector/PROGRESS.md`, `docs/collector/INSPECTION.md`,
 > `docs/collector/DEMO.md`, `docs/decisions/0021-onlan-collector.md`, and `docs/PROD_READINESS.md`.
-> Tracked on `feat/collector-onlan` / PR #7. It is an independent add-on and does not change the
+> Delivered in PR #7 (**merged** to `main`, CI green). It is an independent add-on and does not change the
 > Phase 3 → 4 plan above.
 
 ## Task list
