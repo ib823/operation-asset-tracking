@@ -56,11 +56,20 @@ test('data pages paint real, VISIBLE rows in a real browser', async ({ page, con
   await expect(page.getByText('LAB-0005'), 'a known tag is visible').toBeVisible()
   await page.screenshot({ path: 'test-results/assets.png', fullPage: true })
 
-  // Dashboard — the numbers must be visible.
+  // Dashboard — a real utilisation figure must be visible. Assert the PROPERTY, not a hardcoded
+  // number: PJ02 (LAB-0005, the printer) shows a measured %, and sites with no connector data
+  // honestly read "not measured". Utilisation is engine-derived from ALL signals in the window,
+  // so the exact figure legitimately rises as the live SNMP collector reports (33.3% seed-only,
+  // 66.7% once a real reading lands) — a magic constant here goes stale the moment prod collects
+  // data. What must always hold is that the measured/not-measured distinction renders.
   await page.goto(`${BASE}/`, { waitUntil: 'load' })
-  await expect(page.getByText(/33\.3/).first(), 'LAB-0005 utilisation 33.3% is visible').toBeVisible({
-    timeout: 20000,
-  })
+  const pj02Utilisation = page.locator('[data-site-code="PJ02"]').getByTestId('site-utilisation')
+  await expect(pj02Utilisation, 'PJ02 (LAB-0005) utilisation is visible').toBeVisible({ timeout: 20000 })
+  await expect(pj02Utilisation, 'PJ02 shows a real % figure, not "not measured"').toContainText('%')
+  await expect(
+    page.getByText(/not measured/i).first(),
+    'a site with no connector data honestly reads "not measured"',
+  ).toBeVisible()
   await expect(page.locator('.animate-pulse'), 'dashboard skeleton is gone').toHaveCount(0, { timeout: 20000 })
   await page.screenshot({ path: 'test-results/dashboard.png', fullPage: true })
 
